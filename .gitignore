@@ -1,0 +1,9 @@
+.env
+*.session
+*.key
+*.pem
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.mypy_cache
