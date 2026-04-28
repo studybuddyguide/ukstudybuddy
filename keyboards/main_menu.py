@@ -13,5 +13,4 @@ def get_main_keyboard():
         ],
         resize_keyboard=True
     )
-
     return keyboard

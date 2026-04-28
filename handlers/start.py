@@ -12,6 +12,7 @@ async def cmd_start(message: types.Message):
         name = message.from_user.first_name
     else:
         name = "Студент"
+
     await message.answer(
         f"Привет, {name}! 👋\n\n"
         f"Я помогу найти школу английского в Великобритании.\n"
@@ -23,14 +24,17 @@ async def cmd_start(message: types.Message):
 @start_router.message(lambda msg: msg.text == "🔍 Подобрать курс")
 async def button_search(message: types.Message):
     await message.answer(
-        "🔍 Этот раздел скоро заработает в полную силу. Следи за обновлениями!"
+        "🔍 Отлично! Давай подберём тебе курс.\n\n"
+        "Ответь на несколько вопросов, и я покажу лучшие варианты школ.\n\n"
+        "Этот раздел скоро заработает в полную силу. Следи за обновлениями!"
     )
 
 
 @start_router.message(lambda msg: msg.text == "🏫 Наши школы")
 async def button_schools(message: types.Message):
     await message.answer(
-        "🏫 Скоро здесь появится список школ с подробным описанием, "
+        "🏫 Мы собрали информацию о школах английского в Великобритании.\n\n"
+        "Скоро здесь появится список школ с подробным описанием, "
         "ценами и отзывами. Следи за обновлениями!"
     )
 
@@ -38,16 +42,7 @@ async def button_schools(message: types.Message):
 @start_router.message(lambda msg: msg.text == "💰 Скидки")
 async def button_discounts(message: types.Message):
     await message.answer(
-        "💰 Здесь будут появляться горящие предложения и специальные цены. "
+        "💰 Акции и скидки от языковых школ.\n\n"
+        "Здесь будут появляться горящие предложения и специальные цены. "
         "Заглядывай почаще!"
-    )
-
-
-@start_router.message(lambda msg: msg.text == "📩 Связаться с нами")
-async def button_contact(message: types.Message):
-    await message.answer(
-        "📩 Есть вопросы или нужна помощь с выбором?\n\n"
-        "Напиши нам в Telegram: @your_username\n"
-        "Или на почту: hello@ukstudybuddy.com\n\n"
-        "Ответим в течение 24 часов!"
     )
