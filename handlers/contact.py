@@ -4,14 +4,46 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import ADMIN_GROUP_ID
+from database import get_db
 
 contact_router = Router()
-
-pending_questions: dict[int, int] = {}
 
 
 class ContactStates(StatesGroup):
     waiting_for_message = State()
+
+
+async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) -> int:
+    """Возвращает thread_id для пользователя. Если темы нет — создаёт и сохраняет в БД."""
+    db = await get_db()
+    try:
+        # Ищем тему в БД
+        cursor = await db.execute(
+            "SELECT thread_id FROM user_topics WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+
+        if row is not None:
+            return row[0]
+
+        # Создаём новую тему в группе-форуме
+        topic = await bot.create_forum_topic(
+            chat_id=ADMIN_GROUP_ID,
+            name=f"{user_info} ({username})"
+        )
+        thread_id = topic.message_thread_id
+
+        # Сохраняем в БД
+        await db.execute(
+            "INSERT INTO user_topics (user_id, thread_id, username, first_name) VALUES (?, ?, ?, ?)",
+            (user_id, thread_id, username, user_info),
+        )
+        await db.commit()
+
+        return thread_id
+    finally:
+        await db.close()
 
 
 @contact_router.message(lambda msg: msg.text == "📩 Связаться с нами")
@@ -26,31 +58,24 @@ async def contact_start(message: types.Message, state: FSMContext):
 
 @contact_router.message(ContactStates.waiting_for_message)
 async def contact_forward(message: types.Message, state: FSMContext):
-
     if message.from_user is None:
-        user_info = "Неизвестный пользователь"
-        username = "нет username"
-        user_id = 0
-    else:
-        user = message.from_user
-        user_info = (
-            f"{user.first_name or ''} {user.last_name or ''}".strip()
-        )
-        username = f"@{user.username}" if user.username else "нет username"
-        user_id = user.id
+        await message.answer("❌ Не удалось отправить. Попробуй позже.")
+        await state.clear()
+        return
 
-    forwarded = await message.bot.send_message(
+    user = message.from_user
+    user_info = f"{user.first_name or ''} {user.last_name or ''}".strip()
+    username = f"@{user.username}" if user.username else "нет username"
+
+    # Получаем или создаём тему
+    thread_id = await get_or_create_topic(message.bot, user.id, user_info, username)
+
+    # Отправляем сообщение в тему
+    await message.bot.send_message(
         ADMIN_GROUP_ID,
-        f"📩 Вопрос от пользователя:\n"
-        f"Имя: {user_info}\n"
-        f"Username: {username}\n"
-        f"ID: {user_id}\n\n"
-        f"Текст:\n{message.text}\n\n"
-        f"✏️ Чтобы ответить — жми «Ответить» на это сообщение"
-        f" и напиши текст."
+        f"📩 Новое сообщение:\n\n{message.text}",
+        message_thread_id=thread_id
     )
-
-    pending_questions[forwarded.message_id] = user_id
 
     await message.answer(
         "✅ Твой вопрос отправлен! Мы ответим в ближайшее время."
@@ -66,15 +91,29 @@ async def contact_cancel(message: types.Message, state: FSMContext):
 
 @contact_router.message(lambda msg: msg.reply_to_message is not None)
 async def admin_reply(message: types.Message):
-
+    """Админ отвечает в теме — бот пересылает ответ пользователю."""
     if message.chat.id != ADMIN_GROUP_ID:
         return
 
-    original_msg_id = message.reply_to_message.message_id
-    user_id = pending_questions.get(original_msg_id)
-
-    if user_id is None:
+    thread_id = message.message_thread_id
+    if thread_id is None:
         return
+
+    # Ищем пользователя по thread_id в БД
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT user_id FROM user_topics WHERE thread_id = ?",
+            (thread_id,),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+
+    if row is None:
+        return
+
+    user_id = row[0]
 
     try:
         await message.bot.send_message(
@@ -84,3 +123,36 @@ async def admin_reply(message: types.Message):
         await message.reply("✅ Ответ отправлен пользователю.")
     except Exception:
         await message.reply("❌ Не удалось отправить ответ.")
+
+
+@contact_router.message(lambda msg: msg.chat.type == "private")
+async def handle_regular_message(message: types.Message):
+    """Пересылает любые сообщения от пользователя в его тему (если тема уже есть)."""
+    if message.from_user is None:
+        return
+
+    user_id = message.from_user.id
+
+    # Ищем тему в БД
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT thread_id FROM user_topics WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+
+    if row is None:
+        return  # Нет темы — не пересылаем
+
+    thread_id = row[0]
+
+    await message.bot.send_message(
+        ADMIN_GROUP_ID,
+        f"📩 Новое сообщение:\n\n{message.text}",
+        message_thread_id=thread_id
+    )
+
+    await message.answer("✅ Сообщение отправлено команде!")
