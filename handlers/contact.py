@@ -27,11 +27,12 @@ async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) 
         if row is not None:
             old_thread_id = row[0]
             try:
-                await bot.send_message(
+                check_msg = await bot.send_message(
                     ADMIN_GROUP_ID,
                     ".",
                     message_thread_id=old_thread_id
                 )
+                await check_msg.delete()
                 return old_thread_id
             except TelegramBadRequest:
                 pass
