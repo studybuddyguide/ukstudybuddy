@@ -16,10 +16,8 @@ if _admin_group is None:
     raise ValueError("ID группы не найден! Добавьте ADMIN_GROUP_ID в .env")
 ADMIN_GROUP_ID: int = int(_admin_group)
 
-# Путь к папке данных (Bothost использует /app/data)
 DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 if not DATA_DIR.exists():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE_PATH = str(DATA_DIR / "bot.db")
-DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_PATH}"

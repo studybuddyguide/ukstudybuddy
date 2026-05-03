@@ -1,17 +1,14 @@
 import aiosqlite
-
 from config import DATABASE_PATH
 
 
 async def get_db():
-    """Создаёт подключение к БД."""
     db = await aiosqlite.connect(DATABASE_PATH)
     db.row_factory = aiosqlite.Row
     return db
 
 
 async def init_db():
-    """Создаёт таблицы, если их нет."""
     db = await get_db()
     try:
         await db.executescript("""

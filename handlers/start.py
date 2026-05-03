@@ -7,7 +7,6 @@ from aiogram.fsm.state import State, StatesGroup
 
 from keyboards.main_menu import get_main_keyboard
 from database import get_db
-from config import ADMIN_GROUP_ID
 
 start_router = Router()
 
@@ -32,10 +31,18 @@ def map_duration(duration: str) -> str:
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
-        query = "SELECT * FROM schools"
+        query = "SELECT * FROM schools WHERE 1=1"
         params = []
 
-        # Сортировка
+        if age and age != "🌍 Неважно (все курсы)":
+            query += " AND age_group = ?"
+            params.append(age)
+
+        if city and city != "🤷 Не важно":
+            city_name = city.replace("🏛 ", "")
+            query += " AND city = ?"
+            params.append(city_name)
+
         if sort_type == "💰 Дешевле":
             query += " ORDER BY price_per_week ASC"
         elif sort_type == "💎 Дороже":
@@ -49,6 +56,11 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         schools = []
         for row in rows:
             school = dict(row)
+            mapped_duration = map_duration(duration)
+            if mapped_duration:
+                durations_list = json.loads(school["durations"])
+                if mapped_duration not in durations_list:
+                    continue
             schools.append(school)
 
         return schools
@@ -196,24 +208,8 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
 
     await state.update_data(sort_type=sort_type)
 
-    # Отладка в группу админов
-    await message.bot.send_message(
-        ADMIN_GROUP_ID,
-        f"🔧 DEBUG:\n"
-        f"age='{age}'\n"
-        f"city='{city}'\n"
-        f"duration='{duration}'\n"
-        f"sort='{sort_type}'"
-    )
-
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
-    await message.bot.send_message(
-        ADMIN_GROUP_ID,
-        f"🔧 DEBUG: found {len(schools) if schools else 0} schools"
-    )
-
-    # Сохраняем историю
     db = await get_db()
     try:
         await db.execute(
