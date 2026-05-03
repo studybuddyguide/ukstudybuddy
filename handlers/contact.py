@@ -1,4 +1,5 @@
 from aiogram import Router, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -14,7 +15,7 @@ class ContactStates(StatesGroup):
 
 
 async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) -> int:
-    """Возвращает thread_id для пользователя. Если темы нет — создаёт и сохраняет в БД."""
+    """Возвращает thread_id для пользователя. Если темы нет или она удалена — создаёт новую."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -24,18 +25,38 @@ async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) 
         row = await cursor.fetchone()
 
         if row is not None:
-            return row[0]
+            old_thread_id = row[0]
+            # Проверяем, существует ли тема
+            try:
+                await bot.send_message(
+                    ADMIN_GROUP_ID,
+                    ".",
+                    message_thread_id=old_thread_id
+                )
+                # Тема существует, возвращаем старый ID
+                return old_thread_id
+            except TelegramBadRequest:
+                # Тема удалена — создаём новую
+                pass
 
+        # Создаём новую тему
         topic = await bot.create_forum_topic(
             chat_id=ADMIN_GROUP_ID,
             name=f"{user_info} ({username})"
         )
         thread_id = topic.message_thread_id
 
-        await db.execute(
-            "INSERT INTO user_topics (user_id, thread_id, username, first_name) VALUES (?, ?, ?, ?)",
-            (user_id, thread_id, username, user_info),
-        )
+        # Сохраняем или обновляем в БД
+        if row is not None:
+            await db.execute(
+                "UPDATE user_topics SET thread_id = ? WHERE user_id = ?",
+                (thread_id, user_id),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO user_topics (user_id, thread_id, username, first_name) VALUES (?, ?, ?, ?)",
+                (user_id, thread_id, username, user_info),
+            )
         await db.commit()
 
         return thread_id
@@ -66,9 +87,7 @@ async def contact_forward(message: types.Message, state: FSMContext):
 
     thread_id = await get_or_create_topic(message.bot, user.id, user_info, username)
 
-    # Копируем сообщение — видно аватарку и имя пользователя
     await message.copy_to(ADMIN_GROUP_ID, message_thread_id=thread_id)
-
     await message.answer("✅ Твой вопрос отправлен! Мы ответим в ближайшее время.")
     await state.clear()
 
@@ -81,7 +100,6 @@ async def contact_cancel(message: types.Message, state: FSMContext):
 
 @contact_router.message(lambda msg: msg.reply_to_message is not None)
 async def admin_reply(message: types.Message):
-    """Админ отвечает в теме — бот пересылает ответ пользователю."""
     if message.chat.id != ADMIN_GROUP_ID:
         return
 
@@ -116,28 +134,14 @@ async def admin_reply(message: types.Message):
 
 @contact_router.message(lambda msg: msg.chat.type == "private")
 async def handle_regular_message(message: types.Message):
-    """Пересылает любые сообщения от пользователя в его тему (если тема уже есть)."""
     if message.from_user is None:
         return
 
     user_id = message.from_user.id
+    user_info = f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
+    username = f"@{message.from_user.username}" if message.from_user.username else "нет username"
 
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT thread_id FROM user_topics WHERE user_id = ?",
-            (user_id,),
-        )
-        row = await cursor.fetchone()
-    finally:
-        await db.close()
+    thread_id = await get_or_create_topic(message.bot, user_id, user_info, username)
 
-    if row is None:
-        return
-
-    thread_id = row[0]
-
-    # Копируем сообщение — видно аватарку и имя пользователя
     await message.copy_to(ADMIN_GROUP_ID, message_thread_id=thread_id)
-
     await message.answer("✅ Сообщение отправлено команде!")
