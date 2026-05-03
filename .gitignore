@@ -8,3 +8,7 @@ __pycache__/
 .idea/
 .mypy_cache
 /.venv/
+.DS_Store
+Thumbs.db
+data/
+*.db

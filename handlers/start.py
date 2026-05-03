@@ -1,13 +1,89 @@
+import json
 from aiogram import Router, types
 from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from sqlalchemy import select
 
 from keyboards.main_menu import get_main_keyboard
+from database import async_session
+from models import User, School, SearchHistory, Favorite
 
 start_router = Router()
 
 
+class SearchStates(StatesGroup):
+    waiting_for_age = State()
+    waiting_for_city = State()
+    waiting_for_duration = State()
+    waiting_for_sort = State()
+
+
+def map_duration(duration: str) -> str:
+    mapping = {
+        "🟢 Краткосрочный (1–4 нед)": "Краткосрочный",
+        "🟡 Среднесрочный (1–6 мес)": "Среднесрочный",
+        "🔴 Долгосрочный (6–12+ мес)": "Долгосрочный",
+    }
+    return mapping.get(duration, "")
+
+
+async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
+    async with async_session() as session:
+        result = await session.execute(select(School))
+        schools = list(result.scalars().all())
+
+    if age != "🌍 Неважно (все курсы)":
+        schools = [s for s in schools if s.age_group == age]
+
+    if city != "🤷 Не важно":
+        city_name = city.replace("🏛 ", "")
+        schools = [s for s in schools if s.city == city_name]
+
+    mapped_duration = map_duration(duration)
+    if mapped_duration:
+        filtered = []
+        for s in schools:
+            durations_list = json.loads(s.durations)
+            if mapped_duration in durations_list:
+                filtered.append(s)
+        schools = filtered
+
+    if sort_type == "💰 Дешевле":
+        schools.sort(key=lambda s: s.price_per_week)
+    elif sort_type == "💎 Дороже":
+        schools.sort(key=lambda s: s.price_per_week, reverse=True)
+    elif sort_type == "⭐ По рейтингу":
+        schools.sort(key=lambda s: s.rating, reverse=True)
+
+    return schools
+
+
 @start_router.message(Command("start"))
 async def cmd_start(message: types.Message):
+    # Сохраняем пользователя в БД
+    if message.from_user:
+        async with async_session() as session:
+            result = await session.execute(
+                select(User).where(User.id == message.from_user.id)
+            )
+            user = result.scalar_one_or_none()
+            if user is None:
+                user = User(
+                    id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name,
+                )
+                session.add(user)
+                await session.commit()
+            else:
+                user.username = message.from_user.username
+                user.first_name = message.from_user.first_name
+                user.last_name = message.from_user.last_name
+                await session.commit()
+
     if message.from_user and message.from_user.first_name:
         name = message.from_user.first_name
     else:
@@ -23,20 +99,217 @@ async def cmd_start(message: types.Message):
 
 @start_router.message(lambda msg: msg.text == "🔍 Подобрать курс")
 async def button_search(message: types.Message):
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="👨 Взрослым")],
+            [KeyboardButton(text="🧒 Детям")],
+            [KeyboardButton(text="🌍 Неважно (все курсы)")],
+        ],
+        resize_keyboard=True
+    )
     await message.answer(
         "🔍 Отлично! Давай подберём тебе курс.\n\n"
-        "Ответь на несколько вопросов, и я покажу лучшие варианты школ.\n\n"
-        "Этот раздел скоро заработает в полную силу. Следи за обновлениями!"
+        "Для кого ищешь школу английского? 👇",
+        reply_markup=keyboard
     )
+
+
+@start_router.message(lambda msg: msg.text in ["👨 Взрослым", "🧒 Детям", "🌍 Неважно (все курсы)"])
+async def process_age_choice(message: types.Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await state.set_state(SearchStates.waiting_for_city)
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏛 Лондон")],
+            [KeyboardButton(text="🤷 Не важно")],
+        ],
+        resize_keyboard=True
+    )
+    await message.answer(
+        "🏙 Отлично! Теперь выбери город, где хочешь учиться.\n\n"
+        "Если не знаешь или хочешь посмотреть все варианты — "
+        "нажми «Не важно».",
+        reply_markup=keyboard
+    )
+
+
+@start_router.message(lambda msg: msg.text in ["🏛 Лондон", "🤷 Не важно"])
+async def process_city_choice(message: types.Message, state: FSMContext):
+    await state.update_data(city=message.text)
+    await state.set_state(SearchStates.waiting_for_duration)
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🟢 Краткосрочный (1–4 нед)")],
+            [KeyboardButton(text="🟡 Среднесрочный (1–6 мес)")],
+            [KeyboardButton(text="🔴 Долгосрочный (6–12+ мес)")],
+        ],
+        resize_keyboard=True
+    )
+    await message.answer(
+        "⏳ Сколько времени готов уделить учёбе?\n\n"
+        "🟢 Краткосрочный — каникулы, интенсивы\n"
+        "🟡 Среднесрочный — семестр, подготовка к IELTS\n"
+        "🔴 Долгосрочный — академический год, полное погружение",
+        reply_markup=keyboard
+    )
+
+
+@start_router.message(lambda msg: msg.text in [
+    "🟢 Краткосрочный (1–4 нед)",
+    "🟡 Среднесрочный (1–6 мес)",
+    "🔴 Долгосрочный (6–12+ мес)"
+])
+async def process_duration_choice(message: types.Message, state: FSMContext):
+    await state.update_data(duration=message.text)
+    await state.set_state(SearchStates.waiting_for_sort)
+
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="💰 Дешевле")],
+            [KeyboardButton(text="💎 Дороже")],
+            [KeyboardButton(text="⭐ По рейтингу")],
+        ],
+        resize_keyboard=True
+    )
+    await message.answer(
+        "📊 Отлично! Я подобрал для тебя школы.\n\n"
+        "Как хочешь отсортировать результаты? 👇",
+        reply_markup=keyboard
+    )
+
+
+@start_router.message(lambda msg: msg.text in ["💰 Дешевле", "💎 Дороже", "⭐ По рейтингу"])
+async def process_sort_choice(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    age = data.get("age", "")
+    city = data.get("city", "")
+    duration = data.get("duration", "")
+    sort_type = message.text
+
+    schools = await get_filtered_schools(age, city, duration, sort_type)
+
+    # Сохраняем историю поиска
+    async with async_session() as session:
+        history = SearchHistory(
+            user_id=message.from_user.id,
+            age=age,
+            city=city,
+            duration=duration,
+            sort_type=sort_type,
+            results_count=len(schools),
+        )
+        session.add(history)
+        await session.commit()
+
+    if not schools:
+        await message.answer(
+            "😕 К сожалению, по твоим критериям ничего не найдено.\n\n"
+            "Попробуй изменить параметры — нажми «🔍 Подобрать курс» ещё раз.",
+            reply_markup=get_main_keyboard()
+        )
+        await state.clear()
+        return
+
+    text = f"🔍 Нашёл {len(schools)} школ:\n\n"
+    for i, school in enumerate(schools, 1):
+        durations_list = json.loads(school.durations)
+        durations_text = ", ".join(durations_list)
+        text += (
+            f"{i}. 🏫 {school.name}\n"
+            f"   📍 {school.city}\n"
+            f"   💰 £{school.price_per_week}/нед\n"
+            f"   ⭐ {school.rating}/5\n"
+            f"   📆 {durations_text}\n"
+            f"   📝 {school.description}\n\n"
+        )
+
+    text += (
+        "🔄 Хочешь новый поиск? Нажми /start.\n"
+        "⭐ Чтобы добавить школу в избранное, напиши её номер."
+    )
+
+    await message.answer(text, reply_markup=get_main_keyboard())
+    await state.clear()
+
+
+@start_router.message(lambda msg: msg.text in ["1", "2", "3", "4", "5", "6"])
+async def add_to_favorites_handler(message: types.Message):
+    """Добавляет школу в избранное по номеру из последнего поиска."""
+    if not message.from_user:
+        return
+
+    async with async_session() as session:
+        # Находим последний поиск пользователя
+        result = await session.execute(
+            select(SearchHistory)
+            .where(SearchHistory.user_id == message.from_user.id)
+            .order_by(SearchHistory.created_at.desc())
+            .limit(1)
+        )
+        last_search = result.scalar_one_or_none()
+
+        if last_search is None:
+            await message.answer("Сначала выполните поиск школ.")
+            return
+
+        # Получаем школы с теми же критериями
+        schools = await get_filtered_schools(
+            last_search.age, last_search.city, last_search.duration, last_search.sort_type
+        )
+
+        index = int(message.text) - 1
+        if index < 0 or index >= len(schools):
+            await message.answer("Неверный номер школы.")
+            return
+
+        school = schools[index]
+
+        # Проверяем, нет ли уже в избранном
+        result = await session.execute(
+            select(Favorite).where(
+                Favorite.user_id == message.from_user.id,
+                Favorite.school_id == school.id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            await message.answer(f"🏫 {school.name} уже в избранном!")
+            return
+
+        fav = Favorite(user_id=message.from_user.id, school_id=school.id)
+        session.add(fav)
+        await session.commit()
+
+    await message.answer(f"⭐ {school.name} добавлена в избранное!")
 
 
 @start_router.message(lambda msg: msg.text == "🏫 Наши школы")
 async def button_schools(message: types.Message):
-    await message.answer(
-        "🏫 Мы собрали информацию о школах английского в Великобритании.\n\n"
-        "Скоро здесь появится список школ с подробным описанием, "
-        "ценами и отзывами. Следи за обновлениями!"
-    )
+    async with async_session() as session:
+        result = await session.execute(select(School))
+        schools = list(result.scalars().all())
+
+    if not schools:
+        await message.answer("🏫 Пока нет доступных школ.")
+        return
+
+    text = "🏫 Наши школы:\n\n"
+    for school in schools:
+        durations_list = json.loads(school.durations)
+        durations_text = ", ".join(durations_list)
+        text += (
+            f"🏫 {school.name}\n"
+            f"   📍 {school.city}\n"
+            f"   💰 £{school.price_per_week}/нед\n"
+            f"   ⭐ {school.rating}/5\n"
+            f"   📆 {durations_text}\n"
+            f"   📝 {school.description}\n\n"
+        )
+
+    await message.answer(text)
 
 
 @start_router.message(lambda msg: msg.text == "💰 Скидки")
@@ -44,5 +317,7 @@ async def button_discounts(message: types.Message):
     await message.answer(
         "💰 Акции и скидки от языковых школ.\n\n"
         "Здесь будут появляться горящие предложения и специальные цены. "
-        "Заглядывай почаще!"
+        "Заглядывай почаще!\n\n"
+        "🔔 Хочешь получать уведомления о новых скидках? "
+        "Нажми /subscribe"
     )

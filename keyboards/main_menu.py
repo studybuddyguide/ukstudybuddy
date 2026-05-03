@@ -9,7 +9,10 @@ def get_main_keyboard():
                 KeyboardButton(text="🏫 Наши школы"),
                 KeyboardButton(text="💰 Скидки"),
             ],
-            [KeyboardButton(text="📩 Связаться с нами")],
+            [
+                KeyboardButton(text="⭐ Избранное"),
+                KeyboardButton(text="📩 Связаться с нами"),
+            ],
         ],
         resize_keyboard=True
     )
