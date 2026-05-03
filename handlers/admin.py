@@ -105,3 +105,29 @@ async def subscribe(message: types.Message):
         await db.close()
 
     await message.answer("🔔 Ты подписался на рассылку!\n\nБуду присылать тебе новости о скидках и новых школах.")
+
+@admin_router.message(Command("users"))
+async def show_users(message: types.Message):
+    if message.chat.id != ADMIN_GROUP_ID:
+        return
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT id, username, first_name, last_name, created_at FROM users ORDER BY created_at DESC LIMIT 20"
+        )
+        users = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    if not users:
+        await message.answer("👥 Пока нет пользователей.")
+        return
+
+    text = f"👥 Последние 20 пользователей:\n\n"
+    for user in users:
+        username = f"@{user[1]}" if user[1] else "нет username"
+        name = f"{user[2] or ''} {user[3] or ''}".strip() or "без имени"
+        text += f"• {name} | {username} | ID: {user[0]}\n"
+
+    await message.answer(text)
