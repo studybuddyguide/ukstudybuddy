@@ -17,7 +17,6 @@ async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) 
     """Возвращает thread_id для пользователя. Если темы нет — создаёт и сохраняет в БД."""
     db = await get_db()
     try:
-        # Ищем тему в БД
         cursor = await db.execute(
             "SELECT thread_id FROM user_topics WHERE user_id = ?",
             (user_id,),
@@ -27,14 +26,12 @@ async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) 
         if row is not None:
             return row[0]
 
-        # Создаём новую тему в группе-форуме
         topic = await bot.create_forum_topic(
             chat_id=ADMIN_GROUP_ID,
             name=f"{user_info} ({username})"
         )
         thread_id = topic.message_thread_id
 
-        # Сохраняем в БД
         await db.execute(
             "INSERT INTO user_topics (user_id, thread_id, username, first_name) VALUES (?, ?, ?, ?)",
             (user_id, thread_id, username, user_info),
@@ -67,19 +64,12 @@ async def contact_forward(message: types.Message, state: FSMContext):
     user_info = f"{user.first_name or ''} {user.last_name or ''}".strip()
     username = f"@{user.username}" if user.username else "нет username"
 
-    # Получаем или создаём тему
     thread_id = await get_or_create_topic(message.bot, user.id, user_info, username)
 
-    # Отправляем сообщение в тему
-    await message.bot.send_message(
-        ADMIN_GROUP_ID,
-        f"📩 Новое сообщение:\n\n{message.text}",
-        message_thread_id=thread_id
-    )
+    # Копируем сообщение — видно аватарку и имя пользователя
+    await message.copy_to(ADMIN_GROUP_ID, message_thread_id=thread_id)
 
-    await message.answer(
-        "✅ Твой вопрос отправлен! Мы ответим в ближайшее время."
-    )
+    await message.answer("✅ Твой вопрос отправлен! Мы ответим в ближайшее время.")
     await state.clear()
 
 
@@ -99,7 +89,6 @@ async def admin_reply(message: types.Message):
     if thread_id is None:
         return
 
-    # Ищем пользователя по thread_id в БД
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -133,7 +122,6 @@ async def handle_regular_message(message: types.Message):
 
     user_id = message.from_user.id
 
-    # Ищем тему в БД
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -145,14 +133,11 @@ async def handle_regular_message(message: types.Message):
         await db.close()
 
     if row is None:
-        return  # Нет темы — не пересылаем
+        return
 
     thread_id = row[0]
 
-    await message.bot.send_message(
-        ADMIN_GROUP_ID,
-        f"📩 Новое сообщение:\n\n{message.text}",
-        message_thread_id=thread_id
-    )
+    # Копируем сообщение — видно аватарку и имя пользователя
+    await message.copy_to(ADMIN_GROUP_ID, message_thread_id=thread_id)
 
     await message.answer("✅ Сообщение отправлено команде!")
