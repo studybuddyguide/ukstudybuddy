@@ -199,10 +199,22 @@ async def add_to_favorites_by_number(message: types.Message, state: FSMContext):
     if not message.from_user or not message.text:
         return
 
-    # Если нажата кнопка главного меню — сбрасываем состояние и даём сработать другим обработчикам
-    if message.text in ["🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами"]:
+    # Если нажата кнопка главного меню — сразу выполняем нужное действие
+    if message.text == "🔍 Подобрать курс":
         await state.clear()
+        await button_search(message, state)
         return
+    elif message.text == "🏫 Наши школы":
+        await state.clear()
+        await button_schools(message, state)
+        return
+    elif message.text == "💰 Скидки":
+        await state.clear()
+        await button_discounts(message, state)
+        return
+    elif message.text in ["⭐ Избранное", "📩 Связаться с нами"]:
+        await state.clear()
+        return  # сработают другие роутеры
 
     try:
         index = int(message.text.strip()) - 1
