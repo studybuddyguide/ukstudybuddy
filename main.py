@@ -109,12 +109,7 @@ async def main():
             await db.close()
             await seed_schools()
         else:
-            # Очищаем старые данные и заполняем заново с правильными age_group
-            await db.execute("DELETE FROM schools")
-            await db.commit()
             await db.close()
-            await seed_schools()
-            return
     finally:
         await db.close()
 
