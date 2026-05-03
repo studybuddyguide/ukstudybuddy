@@ -206,9 +206,19 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
     duration = data.get("duration", "")
     sort_type = message.text
 
-    await state.update_data(sort_type=sort_type)
+    # ОТЛАДКА
+    await message.answer(
+        f"🔧 Параметры:\n"
+        f"age='{age}'\n"
+        f"city='{city}'\n"
+        f"duration='{duration}'\n"
+        f"mapped='{map_duration(duration)}'"
+    )
 
+    await state.update_data(sort_type=sort_type)
     schools = await get_filtered_schools(age, city, duration, sort_type)
+
+    await message.answer(f"🔧 Найдено школ: {len(schools) if schools else 0}")
 
     db = await get_db()
     try:
