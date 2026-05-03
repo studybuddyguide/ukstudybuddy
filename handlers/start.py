@@ -198,10 +198,17 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
 async def add_to_favorites_by_number(message: types.Message, state: FSMContext):
     if not message.from_user or not message.text:
         return
+
+    # Если нажата кнопка главного меню — сбрасываем состояние и даём сработать другим обработчикам
+    if message.text in ["🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами"]:
+        await state.clear()
+        return
+
     try:
         index = int(message.text.strip()) - 1
     except ValueError:
         return
+
     if index < 0:
         await message.answer("Номер должен быть положительным.")
         return
