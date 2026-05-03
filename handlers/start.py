@@ -32,18 +32,10 @@ def map_duration(duration: str) -> str:
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
-        query = "SELECT * FROM schools WHERE 1=1"
+        query = "SELECT * FROM schools"
         params = []
 
-        if age and age != "🌍 Неважно (все курсы)":
-            query += " AND age_group = ?"
-            params.append(age)
-
-        if city and city != "🤷 Не важно":
-            city_name = city.replace("🏛 ", "")
-            query += " AND city = ?"
-            params.append(city_name)
-
+        # Сортировка
         if sort_type == "💰 Дешевле":
             query += " ORDER BY price_per_week ASC"
         elif sort_type == "💎 Дороже":
@@ -57,11 +49,6 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         schools = []
         for row in rows:
             school = dict(row)
-            mapped_duration = map_duration(duration)
-            if mapped_duration:
-                durations_list = json.loads(school["durations"])
-                if mapped_duration not in durations_list:
-                    continue
             schools.append(school)
 
         return schools
