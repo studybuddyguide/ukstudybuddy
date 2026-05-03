@@ -18,6 +18,7 @@ class SearchStates(StatesGroup):
     waiting_for_city = State()
     waiting_for_duration = State()
     waiting_for_sort = State()
+    waiting_for_favorite = State()
 
 
 def map_duration(duration: str) -> str:
@@ -34,10 +35,10 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         result = await session.execute(select(School))
         schools = list(result.scalars().all())
 
-    if age != "🌍 Неважно (все курсы)":
+    if age and age != "🌍 Неважно (все курсы)":
         schools = [s for s in schools if s.age_group == age]
 
-    if city != "🤷 Не важно":
+    if city and city != "🤷 Не важно":
         city_name = city.replace("🏛 ", "")
         schools = [s for s in schools if s.city == city_name]
 
@@ -61,8 +62,9 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
 
 
 @start_router.message(Command("start"))
-async def cmd_start(message: types.Message):
-    # Сохраняем пользователя в БД
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
+
     if message.from_user:
         async with async_session() as session:
             result = await session.execute(
@@ -188,9 +190,10 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
     duration = data.get("duration", "")
     sort_type = message.text
 
+    await state.update_data(sort_type=sort_type)
+
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
-    # Сохраняем историю поиска
     async with async_session() as session:
         history = SearchHistory(
             user_id=message.from_user.id,
@@ -198,7 +201,7 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
             city=city,
             duration=duration,
             sort_type=sort_type,
-            results_count=len(schools),
+            results_count=len(schools) if schools else 0,
         )
         session.add(history)
         await session.commit()
@@ -225,48 +228,43 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
             f"   📝 {school.description}\n\n"
         )
 
-    text += (
-        "🔄 Хочешь новый поиск? Нажми /start.\n"
-        "⭐ Чтобы добавить школу в избранное, напиши её номер."
-    )
+    text += "⭐ Чтобы добавить школу в избранное — напиши её номер."
 
     await message.answer(text, reply_markup=get_main_keyboard())
-    await state.clear()
+    await state.set_state(SearchStates.waiting_for_favorite)
 
 
-@start_router.message(lambda msg: msg.text in ["1", "2", "3", "4", "5", "6"])
-async def add_to_favorites_handler(message: types.Message):
-    """Добавляет школу в избранное по номеру из последнего поиска."""
-    if not message.from_user:
+@start_router.message(SearchStates.waiting_for_favorite)
+async def add_to_favorites_by_number(message: types.Message, state: FSMContext):
+    if not message.from_user or not message.text:
         return
 
+    try:
+        index = int(message.text.strip()) - 1
+    except ValueError:
+        return
+
+    if index < 0:
+        await message.answer("Номер должен быть положительным. Попробуй ещё раз.")
+        return
+
+    data = await state.get_data()
+    age = data.get("age", "")
+    city = data.get("city", "")
+    duration = data.get("duration", "")
+    sort_type = data.get("sort_type", "")
+
+    schools = await get_filtered_schools(age, city, duration, sort_type)
+
+    if index >= len(schools):
+        await message.answer(
+            f"В списке всего {len(schools)} школ. Введи номер от 1 до {len(schools)}."
+        )
+        return
+
+    school = schools[index]
+
     async with async_session() as session:
-        # Находим последний поиск пользователя
-        result = await session.execute(
-            select(SearchHistory)
-            .where(SearchHistory.user_id == message.from_user.id)
-            .order_by(SearchHistory.created_at.desc())
-            .limit(1)
-        )
-        last_search = result.scalar_one_or_none()
-
-        if last_search is None:
-            await message.answer("Сначала выполните поиск школ.")
-            return
-
-        # Получаем школы с теми же критериями
-        schools = await get_filtered_schools(
-            last_search.age, last_search.city, last_search.duration, last_search.sort_type
-        )
-
-        index = int(message.text) - 1
-        if index < 0 or index >= len(schools):
-            await message.answer("Неверный номер школы.")
-            return
-
-        school = schools[index]
-
-        # Проверяем, нет ли уже в избранном
         result = await session.execute(
             select(Favorite).where(
                 Favorite.user_id == message.from_user.id,
@@ -276,18 +274,20 @@ async def add_to_favorites_handler(message: types.Message):
         existing = result.scalar_one_or_none()
 
         if existing:
-            await message.answer(f"🏫 {school.name} уже в избранном!")
-            return
+            await message.answer(f"⭐ {school.name} уже в избранном!")
+        else:
+            fav = Favorite(user_id=message.from_user.id, school_id=school.id)
+            session.add(fav)
+            await session.commit()
+            await message.answer(f"⭐ {school.name} добавлена в избранное!")
 
-        fav = Favorite(user_id=message.from_user.id, school_id=school.id)
-        session.add(fav)
-        await session.commit()
-
-    await message.answer(f"⭐ {school.name} добавлена в избранное!")
+    await state.clear()
 
 
 @start_router.message(lambda msg: msg.text == "🏫 Наши школы")
-async def button_schools(message: types.Message):
+async def button_schools(message: types.Message, state: FSMContext):
+    await state.clear()
+
     async with async_session() as session:
         result = await session.execute(select(School))
         schools = list(result.scalars().all())
@@ -313,7 +313,9 @@ async def button_schools(message: types.Message):
 
 
 @start_router.message(lambda msg: msg.text == "💰 Скидки")
-async def button_discounts(message: types.Message):
+async def button_discounts(message: types.Message, state: FSMContext):
+    await state.clear()
+
     await message.answer(
         "💰 Акции и скидки от языковых школ.\n\n"
         "Здесь будут появляться горящие предложения и специальные цены. "
