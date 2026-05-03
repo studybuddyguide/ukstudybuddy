@@ -1,7 +1,8 @@
 import asyncio
+import os
 from aiogram import Bot, Dispatcher
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, DATABASE_PATH, DATA_DIR
 from database import init_db, get_db
 from handlers.start import start_router
 from handlers.contact import contact_router
@@ -19,24 +20,44 @@ dp.include_router(admin_router)
 
 
 async def main():
-    await init_db()
-    print("База данных готова!")
+    # Отправляем отладку в группу
+    debug_msg = f"🔧 BOT STARTED\nDATA_DIR={DATA_DIR}\nexists={DATA_DIR.exists()}\nDB_PATH={DATABASE_PATH}"
+    try:
+        await bot.send_message(chat_id=int(os.getenv("ADMIN_GROUP_ID")), text=debug_msg)
+    except Exception:
+        pass
 
-    # Проверяем и заполняем школы при первом запуске
+    await init_db()
+    
     db = await get_db()
     try:
         cursor = await db.execute("SELECT COUNT(*) FROM schools")
         count = (await cursor.fetchone())[0]
+        
         if count == 0:
-            print("Школ нет — заполняем БД...")
             await db.close()
             await seed_schools()
-        else:
-            print(f"Школ в БД: {count}")
+            db = await get_db()
+            cursor = await db.execute("SELECT COUNT(*) FROM schools")
+            count = (await cursor.fetchone())[0]
+        
+        await bot.send_message(
+            chat_id=int(os.getenv("ADMIN_GROUP_ID")),
+            text=f"🔧 Schools in DB: {count}"
+        )
+    except Exception as e:
+        await bot.send_message(
+            chat_id=int(os.getenv("ADMIN_GROUP_ID")),
+            text=f"🔧 DB ERROR: {e}"
+        )
     finally:
         await db.close()
 
-    print("Бот запущен и готов к работе!")
+    await bot.send_message(
+        chat_id=int(os.getenv("ADMIN_GROUP_ID")),
+        text="✅ Bot is ready!"
+    )
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
