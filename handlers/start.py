@@ -79,7 +79,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             row = await user.fetchone()
             if row is None:
                 await db.execute(
-                    "INSERT INTO users (id, username, first_name, last_name) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO users (id, username, first_name, last_name, is_subscribed) VALUES (?, ?, ?, ?, 1)",
                     (message.from_user.id, message.from_user.username, message.from_user.first_name, message.from_user.last_name),
                 )
                 await db.commit()
@@ -196,11 +196,9 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
 
 @start_router.message(SearchStates.waiting_for_favorite)
 async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
-    """Единый обработчик: либо добавляет в избранное, либо перенаправляет на меню."""
     if not message.from_user or not message.text:
         return
 
-    # Все кнопки главного меню — обрабатываем сразу
     if message.text == "🔍 Подобрать курс":
         await button_search(message, state)
         return
@@ -219,7 +217,6 @@ async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
         await contact_direct(message, state)
         return
 
-    # Если не кнопка меню — пробуем добавить в избранное по номеру
     try:
         index = int(message.text.strip()) - 1
     except ValueError:
@@ -253,7 +250,6 @@ async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
 
 
 async def show_favorites_direct(message: types.Message):
-    """Прямой вызов избранного из start_router."""
     if not message.from_user:
         return
     db = await get_db()
@@ -278,7 +274,6 @@ async def show_favorites_direct(message: types.Message):
 
 
 async def contact_direct(message: types.Message, state: FSMContext):
-    """Прямой вызов связи с нами из start_router."""
     from aiogram.fsm.state import State, StatesGroup
 
     class ContactStates(StatesGroup):
