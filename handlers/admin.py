@@ -1,12 +1,8 @@
 from datetime import datetime, timedelta
-
 from aiogram import Router, types
 from aiogram.filters import Command
-from sqlalchemy import select, func
-
-from database import async_session
-from models import User, SearchHistory
 from config import ADMIN_GROUP_ID
+from database import get_db
 
 admin_router = Router()
 
@@ -16,24 +12,22 @@ async def show_stats(message: types.Message):
     if message.chat.id != ADMIN_GROUP_ID:
         return
 
-    async with async_session() as session:
-        total_result = await session.execute(
-            select(func.count(User.id))
-        )
-        total_users = total_result.scalar()
+    db = await get_db()
+    try:
+        total = await db.execute("SELECT COUNT(*) FROM users")
+        total_users = (await total.fetchone())[0]
 
-        week_ago = datetime.utcnow() - timedelta(days=7)
-
-        active_result = await session.execute(
-            select(func.count(func.distinct(SearchHistory.user_id)))
-            .where(SearchHistory.created_at >= week_ago)
+        week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        active = await db.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM search_history WHERE created_at >= ?",
+            (week_ago,),
         )
-        active_users = active_result.scalar()
+        active_users = (await active.fetchone())[0]
 
-        subscribed_result = await session.execute(
-            select(func.count(User.id)).where(User.is_subscribed == True)
-        )
-        subscribed = subscribed_result.scalar()
+        sub = await db.execute("SELECT COUNT(*) FROM users WHERE is_subscribed = 1")
+        subscribed = (await sub.fetchone())[0]
+    finally:
+        await db.close()
 
     await message.answer(
         f"📊 Статистика бота:\n\n"
@@ -50,35 +44,29 @@ async def broadcast_start(message: types.Message):
 
     text = message.text
     if text == "/broadcast":
-        await message.answer(
-            "📢 Чтобы сделать рассылку, напиши:\n"
-            "`/broadcast Текст сообщения`"
-        )
+        await message.answer("📢 Чтобы сделать рассылку, напиши:\n`/broadcast Текст сообщения`")
         return
 
     broadcast_text = text.replace("/broadcast ", "", 1)
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.is_subscribed == True)
-        )
-        users = list(result.scalars().all())
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id FROM users WHERE is_subscribed = 1")
+        users = await cursor.fetchall()
+    finally:
+        await db.close()
 
     success = 0
     failed = 0
 
     for user in users:
         try:
-            await message.bot.send_message(user.id, f"📢 Рассылка:\n\n{broadcast_text}")
+            await message.bot.send_message(user[0], f"📢 Рассылка:\n\n{broadcast_text}")
             success += 1
         except Exception:
             failed += 1
 
-    await message.answer(
-        f"✅ Рассылка завершена:\n"
-        f"Отправлено: {success}\n"
-        f"Не удалось: {failed}"
-    )
+    await message.answer(f"✅ Рассылка завершена:\nОтправлено: {success}\nНе удалось: {failed}")
 
 
 @admin_router.message(Command("unsubscribe"))
@@ -86,20 +74,14 @@ async def unsubscribe(message: types.Message):
     if not message.from_user:
         return
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.id == message.from_user.id)
-        )
-        user = result.scalar_one_or_none()
+    db = await get_db()
+    try:
+        await db.execute("UPDATE users SET is_subscribed = 0 WHERE id = ?", (message.from_user.id,))
+        await db.commit()
+    finally:
+        await db.close()
 
-        if user:
-            user.is_subscribed = False
-            await session.commit()
-
-    await message.answer(
-        "🔕 Ты отписался от рассылки.\n\n"
-        "Чтобы снова подписаться — нажми /subscribe"
-    )
+    await message.answer("🔕 Ты отписался от рассылки.\n\nЧтобы снова подписаться — нажми /subscribe")
 
 
 @admin_router.message(Command("subscribe"))
@@ -107,26 +89,19 @@ async def subscribe(message: types.Message):
     if not message.from_user:
         return
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.id == message.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-
-        if user is None:
-            user = User(
-                id=message.from_user.id,
-                username=message.from_user.username,
-                first_name=message.from_user.first_name,
-                last_name=message.from_user.last_name,
+    db = await get_db()
+    try:
+        user = await db.execute("SELECT id FROM users WHERE id = ?", (message.from_user.id,))
+        row = await user.fetchone()
+        if row is None:
+            await db.execute(
+                "INSERT INTO users (id, username, first_name, last_name, is_subscribed) VALUES (?, ?, ?, ?, 1)",
+                (message.from_user.id, message.from_user.username, message.from_user.first_name, message.from_user.last_name),
             )
-            session.add(user)
         else:
-            user.is_subscribed = True
+            await db.execute("UPDATE users SET is_subscribed = 1 WHERE id = ?", (message.from_user.id,))
+        await db.commit()
+    finally:
+        await db.close()
 
-        await session.commit()
-
-    await message.answer(
-        "🔔 Ты подписался на рассылку!\n\n"
-        "Буду присылать тебе новости о скидках и новых школах."
-    )
+    await message.answer("🔔 Ты подписался на рассылку!\n\nБуду присылать тебе новости о скидках и новых школах.")

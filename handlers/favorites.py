@@ -1,8 +1,5 @@
 from aiogram import Router, types
-from sqlalchemy import select
-
-from database import async_session
-from models import User, School, Favorite
+from database import get_db
 
 favorites_router = Router()
 
@@ -12,11 +9,20 @@ async def show_favorites(message: types.Message):
     if not message.from_user:
         return
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(Favorite).where(Favorite.user_id == message.from_user.id)
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            """
+            SELECT s.name, s.city, s.price_per_week, s.rating
+            FROM favorites f
+            JOIN schools s ON f.school_id = s.id
+            WHERE f.user_id = ?
+            """,
+            (message.from_user.id,),
         )
-        favorites = list(result.scalars().all())
+        favorites = await cursor.fetchall()
+    finally:
+        await db.close()
 
     if not favorites:
         await message.answer(
@@ -27,12 +33,12 @@ async def show_favorites(message: types.Message):
 
     text = "⭐ Твои избранные школы:\n\n"
     for i, fav in enumerate(favorites, 1):
-        school = fav.school
+        fav = dict(fav)
         text += (
-            f"{i}. 🏫 {school.name}\n"
-            f"   📍 {school.city}\n"
-            f"   💰 £{school.price_per_week}/нед\n"
-            f"   ⭐ {school.rating}/5\n\n"
+            f"{i}. 🏫 {fav['name']}\n"
+            f"   📍 {fav['city']}\n"
+            f"   💰 £{fav['price_per_week']}/нед\n"
+            f"   ⭐ {fav['rating']}/5\n\n"
         )
 
     await message.answer(text)

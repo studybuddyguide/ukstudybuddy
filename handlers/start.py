@@ -4,11 +4,9 @@ from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select
 
 from keyboards.main_menu import get_main_keyboard
-from database import async_session
-from models import User, School, SearchHistory, Favorite
+from database import get_db
 
 start_router = Router()
 
@@ -31,34 +29,45 @@ def map_duration(duration: str) -> str:
 
 
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
-    async with async_session() as session:
-        result = await session.execute(select(School))
-        schools = list(result.scalars().all())
+    db = await get_db()
+    try:
+        query = "SELECT * FROM schools WHERE 1=1"
+        params = []
 
-    if age and age != "🌍 Неважно (все курсы)":
-        schools = [s for s in schools if s.age_group == age]
+        if age and age != "🌍 Неважно (все курсы)":
+            query += " AND age_group = ?"
+            params.append(age)
 
-    if city and city != "🤷 Не важно":
-        city_name = city.replace("🏛 ", "")
-        schools = [s for s in schools if s.city == city_name]
+        if city and city != "🤷 Не важно":
+            city_name = city.replace("🏛 ", "")
+            query += " AND city = ?"
+            params.append(city_name)
 
-    mapped_duration = map_duration(duration)
-    if mapped_duration:
-        filtered = []
-        for s in schools:
-            durations_list = json.loads(s.durations)
-            if mapped_duration in durations_list:
-                filtered.append(s)
-        schools = filtered
+        # Сортировка
+        if sort_type == "💰 Дешевле":
+            query += " ORDER BY price_per_week ASC"
+        elif sort_type == "💎 Дороже":
+            query += " ORDER BY price_per_week DESC"
+        elif sort_type == "⭐ По рейтингу":
+            query += " ORDER BY rating DESC"
 
-    if sort_type == "💰 Дешевле":
-        schools.sort(key=lambda s: s.price_per_week)
-    elif sort_type == "💎 Дороже":
-        schools.sort(key=lambda s: s.price_per_week, reverse=True)
-    elif sort_type == "⭐ По рейтингу":
-        schools.sort(key=lambda s: s.rating, reverse=True)
+        cursor = await db.execute(query, params)
+        rows = await cursor.fetchall()
 
-    return schools
+        schools = []
+        for row in rows:
+            school = dict(row)
+            # Фильтр по длительности (SQLite не умеет искать в JSON, делаем в Python)
+            mapped_duration = map_duration(duration)
+            if mapped_duration:
+                durations_list = json.loads(school["durations"])
+                if mapped_duration not in durations_list:
+                    continue
+            schools.append(school)
+
+        return schools
+    finally:
+        await db.close()
 
 
 @start_router.message(Command("start"))
@@ -66,25 +75,34 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
 
     if message.from_user:
-        async with async_session() as session:
-            result = await session.execute(
-                select(User).where(User.id == message.from_user.id)
-            )
-            user = result.scalar_one_or_none()
-            if user is None:
-                user = User(
-                    id=message.from_user.id,
-                    username=message.from_user.username,
-                    first_name=message.from_user.first_name,
-                    last_name=message.from_user.last_name,
+        db = await get_db()
+        try:
+            user = await db.execute("SELECT id FROM users WHERE id = ?", (message.from_user.id,))
+            row = await user.fetchone()
+            if row is None:
+                await db.execute(
+                    "INSERT INTO users (id, username, first_name, last_name) VALUES (?, ?, ?, ?)",
+                    (
+                        message.from_user.id,
+                        message.from_user.username,
+                        message.from_user.first_name,
+                        message.from_user.last_name,
+                    ),
                 )
-                session.add(user)
-                await session.commit()
+                await db.commit()
             else:
-                user.username = message.from_user.username
-                user.first_name = message.from_user.first_name
-                user.last_name = message.from_user.last_name
-                await session.commit()
+                await db.execute(
+                    "UPDATE users SET username = ?, first_name = ?, last_name = ? WHERE id = ?",
+                    (
+                        message.from_user.username,
+                        message.from_user.first_name,
+                        message.from_user.last_name,
+                        message.from_user.id,
+                    ),
+                )
+                await db.commit()
+        finally:
+            await db.close()
 
     if message.from_user and message.from_user.first_name:
         name = message.from_user.first_name
@@ -194,17 +212,16 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
 
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
-    async with async_session() as session:
-        history = SearchHistory(
-            user_id=message.from_user.id,
-            age=age,
-            city=city,
-            duration=duration,
-            sort_type=sort_type,
-            results_count=len(schools) if schools else 0,
+    # Сохраняем историю
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO search_history (user_id, age, city, duration, sort_type, results_count) VALUES (?, ?, ?, ?, ?, ?)",
+            (message.from_user.id, age, city, duration, sort_type, len(schools) if schools else 0),
         )
-        session.add(history)
-        await session.commit()
+        await db.commit()
+    finally:
+        await db.close()
 
     if not schools:
         await message.answer(
@@ -217,15 +234,15 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
 
     text = f"🔍 Нашёл {len(schools)} школ:\n\n"
     for i, school in enumerate(schools, 1):
-        durations_list = json.loads(school.durations)
+        durations_list = json.loads(school["durations"])
         durations_text = ", ".join(durations_list)
         text += (
-            f"{i}. 🏫 {school.name}\n"
-            f"   📍 {school.city}\n"
-            f"   💰 £{school.price_per_week}/нед\n"
-            f"   ⭐ {school.rating}/5\n"
+            f"{i}. 🏫 {school['name']}\n"
+            f"   📍 {school['city']}\n"
+            f"   💰 £{school['price_per_week']}/нед\n"
+            f"   ⭐ {school['rating']}/5\n"
             f"   📆 {durations_text}\n"
-            f"   📝 {school.description}\n\n"
+            f"   📝 {school['description']}\n\n"
         )
 
     text += "⭐ Чтобы добавить школу в избранное — напиши её номер."
@@ -257,29 +274,30 @@ async def add_to_favorites_by_number(message: types.Message, state: FSMContext):
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
     if index >= len(schools):
-        await message.answer(
-            f"В списке всего {len(schools)} школ. Введи номер от 1 до {len(schools)}."
-        )
+        await message.answer(f"В списке всего {len(schools)} школ. Введи номер от 1 до {len(schools)}.")
         return
 
     school = schools[index]
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(Favorite).where(
-                Favorite.user_id == message.from_user.id,
-                Favorite.school_id == school.id,
-            )
+    db = await get_db()
+    try:
+        row = await db.execute(
+            "SELECT id FROM favorites WHERE user_id = ? AND school_id = ?",
+            (message.from_user.id, school["id"]),
         )
-        existing = result.scalar_one_or_none()
+        existing = await row.fetchone()
 
         if existing:
-            await message.answer(f"⭐ {school.name} уже в избранном!")
+            await message.answer(f"⭐ {school['name']} уже в избранном!")
         else:
-            fav = Favorite(user_id=message.from_user.id, school_id=school.id)
-            session.add(fav)
-            await session.commit()
-            await message.answer(f"⭐ {school.name} добавлена в избранное!")
+            await db.execute(
+                "INSERT INTO favorites (user_id, school_id) VALUES (?, ?)",
+                (message.from_user.id, school["id"]),
+            )
+            await db.commit()
+            await message.answer(f"⭐ {school['name']} добавлена в избранное!")
+    finally:
+        await db.close()
 
     await state.clear()
 
@@ -288,9 +306,12 @@ async def add_to_favorites_by_number(message: types.Message, state: FSMContext):
 async def button_schools(message: types.Message, state: FSMContext):
     await state.clear()
 
-    async with async_session() as session:
-        result = await session.execute(select(School))
-        schools = list(result.scalars().all())
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM schools")
+        schools = await cursor.fetchall()
+    finally:
+        await db.close()
 
     if not schools:
         await message.answer("🏫 Пока нет доступных школ.")
@@ -298,15 +319,16 @@ async def button_schools(message: types.Message, state: FSMContext):
 
     text = "🏫 Наши школы:\n\n"
     for school in schools:
-        durations_list = json.loads(school.durations)
+        school = dict(school)
+        durations_list = json.loads(school["durations"])
         durations_text = ", ".join(durations_list)
         text += (
-            f"🏫 {school.name}\n"
-            f"   📍 {school.city}\n"
-            f"   💰 £{school.price_per_week}/нед\n"
-            f"   ⭐ {school.rating}/5\n"
+            f"🏫 {school['name']}\n"
+            f"   📍 {school['city']}\n"
+            f"   💰 £{school['price_per_week']}/нед\n"
+            f"   ⭐ {school['rating']}/5\n"
             f"   📆 {durations_text}\n"
-            f"   📝 {school.description}\n\n"
+            f"   📝 {school['description']}\n\n"
         )
 
     await message.answer(text)
@@ -315,7 +337,6 @@ async def button_schools(message: types.Message, state: FSMContext):
 @start_router.message(lambda msg: msg.text == "💰 Скидки")
 async def button_discounts(message: types.Message, state: FSMContext):
     await state.clear()
-
     await message.answer(
         "💰 Акции и скидки от языковых школ.\n\n"
         "Здесь будут появляться горящие предложения и специальные цены. "
