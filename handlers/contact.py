@@ -26,27 +26,22 @@ async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) 
 
         if row is not None:
             old_thread_id = row[0]
-            # Проверяем, существует ли тема
             try:
                 await bot.send_message(
                     ADMIN_GROUP_ID,
                     ".",
                     message_thread_id=old_thread_id
                 )
-                # Тема существует, возвращаем старый ID
                 return old_thread_id
             except TelegramBadRequest:
-                # Тема удалена — создаём новую
                 pass
 
-        # Создаём новую тему
         topic = await bot.create_forum_topic(
             chat_id=ADMIN_GROUP_ID,
             name=f"{user_info} ({username})"
         )
         thread_id = topic.message_thread_id
 
-        # Сохраняем или обновляем в БД
         if row is not None:
             await db.execute(
                 "UPDATE user_topics SET thread_id = ? WHERE user_id = ?",
@@ -87,7 +82,8 @@ async def contact_forward(message: types.Message, state: FSMContext):
 
     thread_id = await get_or_create_topic(message.bot, user.id, user_info, username)
 
-    await message.copy_to(ADMIN_GROUP_ID, message_thread_id=thread_id)
+    await message.forward(ADMIN_GROUP_ID, message_thread_id=thread_id)
+
     await message.answer("✅ Твой вопрос отправлен! Мы ответим в ближайшее время.")
     await state.clear()
 
@@ -100,6 +96,7 @@ async def contact_cancel(message: types.Message, state: FSMContext):
 
 @contact_router.message(lambda msg: msg.reply_to_message is not None)
 async def admin_reply(message: types.Message):
+    """Админ отвечает в теме — бот пересылает ответ пользователю."""
     if message.chat.id != ADMIN_GROUP_ID:
         return
 
@@ -134,6 +131,7 @@ async def admin_reply(message: types.Message):
 
 @contact_router.message(lambda msg: msg.chat.type == "private")
 async def handle_regular_message(message: types.Message):
+    """Пересылает любые сообщения от пользователя в его тему."""
     if message.from_user is None:
         return
 
@@ -143,5 +141,6 @@ async def handle_regular_message(message: types.Message):
 
     thread_id = await get_or_create_topic(message.bot, user_id, user_info, username)
 
-    await message.copy_to(ADMIN_GROUP_ID, message_thread_id=thread_id)
+    await message.forward(ADMIN_GROUP_ID, message_thread_id=thread_id)
+
     await message.answer("✅ Сообщение отправлено команде!")
