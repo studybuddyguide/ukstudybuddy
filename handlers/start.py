@@ -28,7 +28,7 @@ def map_duration(duration: str) -> str:
     return mapping.get(duration, "")
 
 
-async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str):
+async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
         query = "SELECT * FROM schools WHERE 1=1"
@@ -53,12 +53,17 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
 
-        return {
-            "query": query,
-            "params": params,
-            "rows_count": len(rows),
-            "rows": [dict(r) for r in rows]
-        }
+        schools = []
+        for row in rows:
+            school = dict(row)
+            mapped_duration = map_duration(duration)
+            if mapped_duration:
+                durations_list = json.loads(school["durations"])
+                if mapped_duration not in durations_list:
+                    continue
+            schools.append(school)
+
+        return schools
     finally:
         await db.close()
 
@@ -159,26 +164,21 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
     duration = data.get("duration", "")
     sort_type = message.text
 
-    result = await get_filtered_schools(age, city, duration, sort_type)
+    await state.update_data(sort_type=sort_type)
+    schools = await get_filtered_schools(age, city, duration, sort_type)
 
-    await message.answer(f"🔧 SQL: {result['query']}\n🔧 Params: {result['params']}\n🔧 Rows from DB: {result['rows_count']}")
-
-    for row in result["rows"][:3]:
-        await message.answer(f"🔧 {row['name']}: durations={row['durations']}")
-
-    mapped = map_duration(duration)
-    schools = []
-    for row in result["rows"]:
-        if mapped:
-            durations_list = json.loads(row["durations"])
-            if mapped not in durations_list:
-                continue
-        schools.append(row)
-
-    await message.answer(f"🔧 After duration filter: {len(schools)}")
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO search_history (user_id, age, city, duration, sort_type, results_count) VALUES (?, ?, ?, ?, ?, ?)",
+            (message.from_user.id, age, city, duration, sort_type, len(schools) if schools else 0),
+        )
+        await db.commit()
+    finally:
+        await db.close()
 
     if not schools:
-        await message.answer("😕 Ничего не найдено.", reply_markup=get_main_keyboard())
+        await message.answer("😕 К сожалению, по твоим критериям ничего не найдено.\n\nПопробуй изменить параметры — нажми «🔍 Подобрать курс» ещё раз.", reply_markup=get_main_keyboard())
         await state.clear()
         return
 
@@ -206,16 +206,7 @@ async def add_to_favorites_by_number(message: types.Message, state: FSMContext):
         return
 
     data = await state.get_data()
-    result = await get_filtered_schools(data.get("age", ""), data.get("city", ""), data.get("duration", ""), data.get("sort_type", ""))
-
-    mapped = map_duration(data.get("duration", ""))
-    schools = []
-    for row in result["rows"]:
-        if mapped:
-            durations_list = json.loads(row["durations"])
-            if mapped not in durations_list:
-                continue
-        schools.append(row)
+    schools = await get_filtered_schools(data.get("age", ""), data.get("city", ""), data.get("duration", ""), data.get("sort_type", ""))
 
     if index >= len(schools):
         await message.answer(f"В списке всего {len(schools)} школ. Введи номер от 1 до {len(schools)}.")
