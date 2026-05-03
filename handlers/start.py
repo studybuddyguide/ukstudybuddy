@@ -103,7 +103,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 
 @start_router.message(lambda msg: msg.text == "🔍 Подобрать курс")
-async def button_search(message: types.Message):
+async def button_search(message: types.Message, state: FSMContext):
+    await state.clear()
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="👨 Взрослым")],

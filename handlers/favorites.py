@@ -1,11 +1,13 @@
 from aiogram import Router, types
+from aiogram.fsm.context import FSMContext
 from database import get_db
 
 favorites_router = Router()
 
 
 @favorites_router.message(lambda msg: msg.text == "⭐ Избранное")
-async def show_favorites(message: types.Message):
+async def show_favorites(message: types.Message, state: FSMContext):
+    await state.clear()
     if not message.from_user:
         return
 
