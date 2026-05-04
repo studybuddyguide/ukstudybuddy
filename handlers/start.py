@@ -36,7 +36,6 @@ async def delete_last_bot_message(bot, chat_id: int, message_id: int):
 
 
 async def delete_instruction(state: FSMContext, bot, chat_id: int):
-    """Удаляет подсказку 'Связаться с нами'."""
     data = await state.get_data()
     msg_id = data.get("contact_instruction_id")
     if msg_id:
@@ -111,12 +110,15 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     name = message.from_user.first_name if message.from_user and message.from_user.first_name else "Студент"
 
-    await message.answer(
-        f"Привет, {name}! 👋\n\n"
-        f"Я помогу найти школу английского в Великобритании.\n"
-        f"Выбери, что хочешь сделать 👇",
-        reply_markup=get_main_keyboard()
-    )
+    try:
+        await message.answer(
+            f"Привет, {name}! 👋\n\n"
+            f"Я помогу найти школу английского в Великобритании.\n"
+            f"Выбери, что хочешь сделать 👇",
+            reply_markup=get_main_keyboard()
+        )
+    except Exception:
+        pass
 
 
 @start_router.callback_query(F.data == "search")
