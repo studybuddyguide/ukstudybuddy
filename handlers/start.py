@@ -34,14 +34,15 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         query = "SELECT * FROM schools WHERE 1=1"
         params = []
 
-        if age and age != "all":
-            age_map = {"adults": "👨 Взрослым", "kids": "🧒 Детям"}
+        if age and age != "age_all":
+            age_map = {"age_adults": "👨 Взрослым", "age_kids": "🧒 Детям"}
             query += " AND age_group = ?"
             params.append(age_map.get(age, age))
 
-        if city and city != "all":
+        if city and city != "city_all":
+            city_map = {"city_london": "Лондон"}
             query += " AND city = ?"
-            params.append(city)
+            params.append(city_map.get(city, city))
 
         if sort_type == "cheap":
             query += " ORDER BY price_per_week ASC"
@@ -54,7 +55,7 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         rows = await cursor.fetchall()
 
         schools = []
-        mapped_duration = map_duration(duration)
+        mapped_duration = map_duration(duration) if duration else ""
         for row in rows:
             school = dict(row)
             if mapped_duration:
@@ -135,8 +136,7 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data.in_(["city_london", "city_all"]))
 async def cb_city(callback: types.CallbackQuery, state: FSMContext):
-    city_map = {"city_london": "Лондон", "city_all": "all"}
-    await state.update_data(city=city_map[callback.data])
+    await state.update_data(city=callback.data)
     await state.set_state(SearchStates.waiting_for_duration)
 
     keyboard = InlineKeyboardMarkup(
@@ -169,8 +169,8 @@ async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
 @start_router.callback_query(F.data.in_(["sort_cheap", "sort_expensive", "sort_rating"]))
 async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    age = data.get("age", "all")
-    city = data.get("city", "all")
+    age = data.get("age", "age_all")
+    city = data.get("city", "city_all")
     duration = data.get("duration", "")
     sort_type = callback.data.replace("sort_", "")
 
@@ -287,7 +287,7 @@ async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
         reply_markup=get_main_keyboard()
     )
-    await state.set_state(SearchStates.waiting_for_favorite)  # используем как состояние ожидания
+    await state.set_state(SearchStates.waiting_for_favorite)
     await callback.answer()
 
 
@@ -298,7 +298,6 @@ async def handle_favorite_by_number(message: types.Message, state: FSMContext):
     if not message.from_user or not message.text:
         return
 
-    # Кнопки меню (если пользователь нажал кнопку внизу)
     if message.text in ["/start", "/subscribe", "/unsubscribe", "/cancel"]:
         await state.clear()
         return
@@ -314,7 +313,10 @@ async def handle_favorite_by_number(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     schools = await get_filtered_schools(
-        data.get("age", "all"), data.get("city", "all"), data.get("duration", ""), data.get("sort_type", "")
+        data.get("age", "age_all"),
+        data.get("city", "city_all"),
+        data.get("duration", ""),
+        data.get("sort_type", "")
     )
 
     if index >= len(schools):
