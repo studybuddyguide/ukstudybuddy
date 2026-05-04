@@ -130,14 +130,13 @@ async def admin_reply(message: types.Message):
         await message.reply("❌ Не удалось отправить ответ.")
 
 
-@contact_router.message(lambda msg: msg.chat.type == "private")
+@contact_router.message(lambda msg: msg.chat.type == "private" and msg.text not in [
+    "🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами",
+    "/start", "/subscribe", "/unsubscribe", "/cancel", "/stats", "/broadcast", "/users"
+])
 async def handle_regular_message(message: types.Message):
-    """Пересылает сообщения от пользователя в его тему, кроме кнопок меню."""
+    """Пересылает только обычные сообщения, не команды и не кнопки меню."""
     if message.from_user is None:
-        return
-
-    # Не пересылаем кнопки главного меню
-    if message.text in ["🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами"]:
         return
 
     user_id = message.from_user.id
