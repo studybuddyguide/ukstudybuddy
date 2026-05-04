@@ -27,6 +27,15 @@ def map_duration(duration: str) -> str:
     return mapping.get(duration, "")
 
 
+async def delete_last_bot_message(bot, chat_id: int, message_id: int):
+    """Удаляет сообщение по ID."""
+    if message_id:
+        try:
+            await bot.delete_message(chat_id, message_id)
+        except Exception:
+            pass
+
+
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
@@ -112,12 +121,15 @@ async def cb_search(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🌍 Неважно", callback_data="age_all")],
         ]
     )
-    await callback.message.edit_text("🔍 Для кого ищешь школу английского? 👇", reply_markup=keyboard)
+    sent = await callback.message.answer("🔍 Для кого ищешь школу английского? 👇", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
     await callback.answer()
 
 
 @start_router.callback_query(F.data.in_(["age_adults", "age_kids", "age_all"]))
 async def cb_age(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(age=callback.data)
     await state.set_state(SearchStates.waiting_for_city)
     keyboard = InlineKeyboardMarkup(
@@ -126,12 +138,15 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🤷 Не важно", callback_data="city_all")],
         ]
     )
-    await callback.message.edit_text("🏙 Выбери город.", reply_markup=keyboard)
+    sent = await callback.message.answer("🏙 Выбери город.", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
     await callback.answer()
 
 
 @start_router.callback_query(F.data.in_(["city_london", "city_all"]))
 async def cb_city(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(city=callback.data)
     await state.set_state(SearchStates.waiting_for_duration)
     keyboard = InlineKeyboardMarkup(
@@ -141,12 +156,15 @@ async def cb_city(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="🔴 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
         ]
     )
-    await callback.message.edit_text("⏳ Длительность?", reply_markup=keyboard)
+    sent = await callback.message.answer("⏳ Длительность?", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
     await callback.answer()
 
 
 @start_router.callback_query(F.data.in_(["dur_short", "dur_medium", "dur_long"]))
 async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(duration=callback.data.replace("dur_", ""))
     await state.set_state(SearchStates.waiting_for_sort)
     keyboard = InlineKeyboardMarkup(
@@ -156,7 +174,8 @@ async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="⭐ По рейтингу", callback_data="sort_rating")],
         ]
     )
-    await callback.message.edit_text("📊 Как отсортировать?", reply_markup=keyboard)
+    sent = await callback.message.answer("📊 Как отсортировать?", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
     await callback.answer()
 
 
@@ -170,8 +189,11 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
+    # Удаляем промежуточное сообщение "Как отсортировать?"
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
+
     if not schools:
-        await callback.message.edit_text(
+        await callback.message.answer(
             "😕 Ничего не найдено.\n\nНажми /start чтобы попробовать снова.",
             reply_markup=get_main_keyboard()
         )
@@ -185,14 +207,16 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    await callback.message.edit_text(text, reply_markup=get_main_keyboard())
+    # Новый результат — НОВОЕ сообщение, не удаляем предыдущий список
+    await callback.message.answer(text, reply_markup=get_main_keyboard())
+    await state.clear()
     await callback.answer()
 
 
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text(
+    await callback.message.answer(
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
         reply_markup=get_main_keyboard()
     )
