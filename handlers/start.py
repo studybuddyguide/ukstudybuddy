@@ -199,8 +199,20 @@ async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
     if not message.from_user or not message.text:
         return
 
-    # Кнопки главного меню — сбрасываем состояние, они обработаются в своих роутерах
-    if message.text in ["🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами"]:
+    if message.text == "🔍 Подобрать курс":
+        await button_search(message, state)
+        return
+    elif message.text == "🏫 Наши школы":
+        await button_schools(message, state)
+        return
+    elif message.text == "💰 Скидки":
+        await button_discounts(message, state)
+        return
+    elif message.text == "⭐ Избранное":
+        await state.clear()
+        await show_favorites(message, state)
+        return
+    elif message.text == "📩 Связаться с нами":
         await state.clear()
         return
 
@@ -234,6 +246,33 @@ async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
     finally:
         await db.close()
     await state.clear()
+
+
+async def show_favorites(message: types.Message, state: FSMContext):
+    """Показывает избранное — вызывается локально из handle_favorite_or_menu."""
+    await state.clear()
+    if not message.from_user:
+        return
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT s.name, s.city, s.price_per_week, s.rating FROM favorites f JOIN schools s ON f.school_id = s.id WHERE f.user_id = ?",
+            (message.from_user.id,),
+        )
+        favorites = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    if not favorites:
+        await message.answer("⭐ У тебя пока нет избранных школ.\n\nНажми «🔍 Подобрать курс», чтобы найти школу и добавить в избранное.")
+        return
+
+    text = "⭐ Твои избранные школы:\n\n"
+    for i, fav in enumerate(favorites, 1):
+        fav = dict(fav)
+        text += f"{i}. 🏫 {fav['name']}\n   📍 {fav['city']}\n   💰 £{fav['price_per_week']}/нед\n   ⭐ {fav['rating']}/5\n\n"
+    await message.answer(text)
 
 
 @start_router.message(lambda msg: msg.text == "🏫 Наши школы")
