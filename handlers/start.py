@@ -28,6 +28,22 @@ def map_duration(duration: str) -> str:
     return mapping.get(duration, "")
 
 
+async def delete_last_bot_message(bot, chat_id: int, state: FSMContext):
+    """Удаляет предыдущее сообщение бота, если оно было."""
+    data = await state.get_data()
+    last_msg_id = data.get("last_bot_msg_id")
+    if last_msg_id:
+        try:
+            await bot.delete_message(chat_id, last_msg_id)
+        except Exception:
+            pass  # сообщение уже удалено или не существует
+
+
+async def save_last_bot_message(state: FSMContext, message: types.Message):
+    """Сохраняет ID отправленного сообщения для последующего удаления."""
+    await state.update_data(last_bot_msg_id=message.message_id)
+
+
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
@@ -95,12 +111,13 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     name = message.from_user.first_name if message.from_user and message.from_user.first_name else "Студент"
 
-    await message.answer(
+    sent = await message.answer(
         f"Привет, {name}! 👋\n\n"
         f"Я помогу найти школу английского в Великобритании.\n"
         f"Выбери, что хочешь сделать 👇",
         reply_markup=get_main_keyboard()
     )
+    await save_last_bot_message(state, sent)
 
 
 # --- CALLBACK-ОБРАБОТЧИКИ ---
@@ -203,8 +220,11 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
     text += "⭐ Чтобы добавить в избранное — напиши номер."
 
-    await callback.message.edit_text(text, reply_markup=get_main_keyboard())
-    await state.set_state(SearchStates.waiting_for_favorite)
+    # Удаляем предыдущее сообщение с результатом, если оно есть
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
+
+    sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
+    await save_last_bot_message(state, sent)
     await callback.answer()
 
 
@@ -232,7 +252,10 @@ async def cb_schools(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    await callback.message.edit_text(text, reply_markup=get_main_keyboard())
+    # Удаляем предыдущее сообщение-результат
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
+    sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
+    await save_last_bot_message(state, sent)
     await callback.answer()
 
 
@@ -276,7 +299,10 @@ async def cb_favorites(callback: types.CallbackQuery, state: FSMContext):
         fav = dict(fav)
         text += f"{i}. 🏫 {fav['name']}\n   📍 {fav['city']}\n   💰 £{fav['price_per_week']}/нед\n   ⭐ {fav['rating']}/5\n\n"
 
-    await callback.message.edit_text(text, reply_markup=get_main_keyboard())
+    # Удаляем предыдущее сообщение-результат
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
+    sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
+    await save_last_bot_message(state, sent)
     await callback.answer()
 
 
