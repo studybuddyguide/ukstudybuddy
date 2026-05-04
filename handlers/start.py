@@ -108,6 +108,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     name = message.from_user.first_name if message.from_user and message.from_user.first_name else "Студент"
 
+    await delete_last_bot_message(message.bot, message.chat.id, state)
     sent = await message.answer(
         f"Привет, {name}! 👋\n\n"
         f"Я помогу найти школу английского в Великобритании.\n"
@@ -200,9 +201,12 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
+    # Удаляем предыдущий результат (список школ)
     await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
-    sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
-    await save_last_bot_message(state, sent)
+    # Редактируем текущее сообщение — заменяем "Как отсортировать?" на список школ
+    await callback.message.edit_text(text, reply_markup=get_main_keyboard())
+    # Сохраняем это сообщение как последний результат
+    await state.update_data(last_bot_msg_id=callback.message.message_id)
     await callback.answer()
 
 
