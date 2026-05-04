@@ -28,7 +28,6 @@ def map_duration(duration: str) -> str:
 
 
 async def delete_last_bot_message(bot, chat_id: int, message_id: int):
-    """Удаляет сообщение по ID."""
     if message_id:
         try:
             await bot.delete_message(chat_id, message_id)
@@ -189,7 +188,6 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
-    # Удаляем промежуточное сообщение "Как отсортировать?"
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
 
     if not schools:
@@ -207,7 +205,6 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    # Новый результат — НОВОЕ сообщение, не удаляем предыдущий список
     await callback.message.answer(text, reply_markup=get_main_keyboard())
     await state.clear()
     await callback.answer()
@@ -216,8 +213,21 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer(
+    sent = await callback.message.answer(
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
         reply_markup=get_main_keyboard()
     )
+    await state.update_data(contact_instruction_id=sent.message_id)
     await callback.answer()
+
+
+@start_router.message(lambda msg: msg.chat.type == "private" and msg.text not in [
+    "/start", "/subscribe", "/unsubscribe", "/cancel", "🔍 Подобрать курс", "📩 Связаться с нами"
+])
+async def delete_instruction_on_message(message: types.Message, state: FSMContext):
+    """Удаляет инструкцию 'Связаться с нами' при отправке сообщения."""
+    data = await state.get_data()
+    instruction_id = data.get("contact_instruction_id")
+    if instruction_id:
+        await delete_last_bot_message(message.bot, message.chat.id, instruction_id)
+        await state.update_data(contact_instruction_id=None)
