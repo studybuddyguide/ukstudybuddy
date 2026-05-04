@@ -32,27 +32,6 @@ async def init_db():
                 description TEXT
             );
 
-            CREATE TABLE IF NOT EXISTS favorites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                school_id INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id),
-                FOREIGN KEY (school_id) REFERENCES schools(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS search_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                age TEXT,
-                city TEXT,
-                duration TEXT,
-                sort_type TEXT,
-                results_count INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            );
-
             CREATE TABLE IF NOT EXISTS user_topics (
                 user_id INTEGER PRIMARY KEY,
                 thread_id INTEGER NOT NULL,

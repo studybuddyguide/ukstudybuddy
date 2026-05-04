@@ -6,16 +6,12 @@ from config import BOT_TOKEN
 from database import init_db, get_db
 from handlers.start import start_router
 from handlers.contact import contact_router
-from handlers.favorites import favorites_router
-from handlers.admin import admin_router
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 dp.include_router(start_router)
 dp.include_router(contact_router)
-dp.include_router(favorites_router)
-dp.include_router(admin_router)
 
 
 SCHOOLS_DATA = [
@@ -108,8 +104,6 @@ async def main():
         if count == 0:
             await db.close()
             await seed_schools()
-        else:
-            await db.close()
     finally:
         await db.close()
 

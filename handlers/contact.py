@@ -15,7 +15,6 @@ class ContactStates(StatesGroup):
 
 
 async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) -> int:
-    """Возвращает thread_id для пользователя. Если темы нет или она удалена — создаёт новую."""
     db = await get_db()
     try:
         cursor = await db.execute(
@@ -60,35 +59,6 @@ async def get_or_create_topic(bot, user_id: int, user_info: str, username: str) 
         await db.close()
 
 
-@contact_router.message(lambda msg: msg.text == "📩 Связаться с нами")
-async def contact_start(message: types.Message, state: FSMContext):
-    await message.answer(
-        "📩 Напиши свой вопрос прямо сюда — "
-        "я перешлю его команде, и мы ответим в ближайшее время.\n\n"
-        "Для отмены нажми /cancel"
-    )
-    await state.set_state(ContactStates.waiting_for_message)
-
-
-@contact_router.message(ContactStates.waiting_for_message)
-async def contact_forward(message: types.Message, state: FSMContext):
-    if message.from_user is None:
-        await message.answer("❌ Не удалось отправить. Попробуй позже.")
-        await state.clear()
-        return
-
-    user = message.from_user
-    user_info = f"{user.first_name or ''} {user.last_name or ''}".strip()
-    username = f"@{user.username}" if user.username else "нет username"
-
-    thread_id = await get_or_create_topic(message.bot, user.id, user_info, username)
-
-    await message.forward(ADMIN_GROUP_ID, message_thread_id=thread_id)
-
-    await message.answer("✅ Твой вопрос отправлен! Мы ответим в ближайшее время.")
-    await state.clear()
-
-
 @contact_router.message(Command("cancel"))
 async def contact_cancel(message: types.Message, state: FSMContext):
     await state.clear()
@@ -97,7 +67,6 @@ async def contact_cancel(message: types.Message, state: FSMContext):
 
 @contact_router.message(lambda msg: msg.reply_to_message is not None)
 async def admin_reply(message: types.Message):
-    """Админ отвечает в теме — бот пересылает ответ пользователю."""
     if message.chat.id != ADMIN_GROUP_ID:
         return
 
@@ -131,11 +100,10 @@ async def admin_reply(message: types.Message):
 
 
 @contact_router.message(lambda msg: msg.chat.type == "private" and msg.text not in [
-    "🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами",
-    "/start", "/subscribe", "/unsubscribe", "/cancel", "/stats", "/broadcast", "/users"
+    "🔍 Подобрать курс", "📩 Связаться с нами",
+    "/start", "/subscribe", "/unsubscribe", "/cancel"
 ])
 async def handle_regular_message(message: types.Message):
-    """Пересылает только обычные сообщения, не команды и не кнопки меню."""
     if message.from_user is None:
         return
 
@@ -146,5 +114,4 @@ async def handle_regular_message(message: types.Message):
     thread_id = await get_or_create_topic(message.bot, user_id, user_info, username)
 
     await message.forward(ADMIN_GROUP_ID, message_thread_id=thread_id)
-
     await message.answer("✅ Сообщение отправлено команде!")

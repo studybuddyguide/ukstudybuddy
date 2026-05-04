@@ -16,7 +16,6 @@ class SearchStates(StatesGroup):
     waiting_for_city = State()
     waiting_for_duration = State()
     waiting_for_sort = State()
-    waiting_for_favorite = State()
 
 
 def map_duration(duration: str) -> str:
@@ -29,18 +28,16 @@ def map_duration(duration: str) -> str:
 
 
 async def delete_last_bot_message(bot, chat_id: int, state: FSMContext):
-    """Удаляет предыдущее сообщение бота, если оно было."""
     data = await state.get_data()
     last_msg_id = data.get("last_bot_msg_id")
     if last_msg_id:
         try:
             await bot.delete_message(chat_id, last_msg_id)
         except Exception:
-            pass  # сообщение уже удалено или не существует
+            pass
 
 
 async def save_last_bot_message(state: FSMContext, message: types.Message):
-    """Сохраняет ID отправленного сообщения для последующего удаления."""
     await state.update_data(last_bot_msg_id=message.message_id)
 
 
@@ -120,8 +117,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await save_last_bot_message(state, sent)
 
 
-# --- CALLBACK-ОБРАБОТЧИКИ ---
-
 @start_router.callback_query(F.data == "search")
 async def cb_search(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -140,7 +135,6 @@ async def cb_search(callback: types.CallbackQuery, state: FSMContext):
 async def cb_age(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(age=callback.data)
     await state.set_state(SearchStates.waiting_for_city)
-
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
@@ -155,7 +149,6 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
 async def cb_city(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(city=callback.data)
     await state.set_state(SearchStates.waiting_for_duration)
-
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🟢 Краткосрочный (1-4 нед)", callback_data="dur_short")],
@@ -171,7 +164,6 @@ async def cb_city(callback: types.CallbackQuery, state: FSMContext):
 async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(duration=callback.data.replace("dur_", ""))
     await state.set_state(SearchStates.waiting_for_sort)
-
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="💰 Дешевле", callback_data="sort_cheap")],
@@ -193,16 +185,6 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
     schools = await get_filtered_schools(age, city, duration, sort_type)
 
-    db = await get_db()
-    try:
-        await db.execute(
-            "INSERT INTO search_history (user_id, age, city, duration, sort_type, results_count) VALUES (?, ?, ?, ?, ?, ?)",
-            (callback.from_user.id, age, city, duration, sort_type, len(schools) if schools else 0),
-        )
-        await db.commit()
-    finally:
-        await db.close()
-
     if not schools:
         await callback.message.edit_text(
             "😕 Ничего не найдено.\n\nНажми /start чтобы попробовать снова.",
@@ -218,88 +200,6 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    text += "⭐ Чтобы добавить в избранное — напиши номер."
-
-    # Удаляем предыдущее сообщение с результатом, если оно есть
-    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
-
-    sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
-    await save_last_bot_message(state, sent)
-    await callback.answer()
-
-
-# --- КНОПКИ МЕНЮ ---
-
-@start_router.callback_query(F.data == "schools")
-async def cb_schools(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    db = await get_db()
-    try:
-        cursor = await db.execute("SELECT * FROM schools")
-        schools = await cursor.fetchall()
-    finally:
-        await db.close()
-
-    if not schools:
-        await callback.message.edit_text("🏫 Пока нет доступных школ.", reply_markup=get_main_keyboard())
-        await callback.answer()
-        return
-
-    text = "🏫 Наши школы:\n\n"
-    for school in schools:
-        school = dict(school)
-        durations_list = json.loads(school["durations"])
-        durations_text = ", ".join(durations_list)
-        text += f"🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
-
-    # Удаляем предыдущее сообщение-результат
-    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
-    sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
-    await save_last_bot_message(state, sent)
-    await callback.answer()
-
-
-@start_router.callback_query(F.data == "discounts")
-async def cb_discounts(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.edit_text(
-        "💰 Акции и скидки от языковых школ.\n\nЗдесь будут появляться горящие предложения и специальные цены.\n\n🔔 Нажми /subscribe для уведомлений.",
-        reply_markup=get_main_keyboard()
-    )
-    await callback.answer()
-
-
-@start_router.callback_query(F.data == "favorites")
-async def cb_favorites(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    if not callback.from_user:
-        await callback.answer()
-        return
-
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT s.name, s.city, s.price_per_week, s.rating FROM favorites f JOIN schools s ON f.school_id = s.id WHERE f.user_id = ?",
-            (callback.from_user.id,),
-        )
-        favorites = await cursor.fetchall()
-    finally:
-        await db.close()
-
-    if not favorites:
-        await callback.message.edit_text(
-            "⭐ У тебя пока нет избранных школ.\n\nНажми «🔍 Подобрать курс», чтобы найти школу.",
-            reply_markup=get_main_keyboard()
-        )
-        await callback.answer()
-        return
-
-    text = "⭐ Твои избранные школы:\n\n"
-    for i, fav in enumerate(favorites, 1):
-        fav = dict(fav)
-        text += f"{i}. 🏫 {fav['name']}\n   📍 {fav['city']}\n   💰 £{fav['price_per_week']}/нед\n   ⭐ {fav['rating']}/5\n\n"
-
-    # Удаляем предыдущее сообщение-результат
     await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
     sent = await callback.message.answer(text, reply_markup=get_main_keyboard())
     await save_last_bot_message(state, sent)
@@ -313,53 +213,4 @@ async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
         reply_markup=get_main_keyboard()
     )
-    await state.set_state(SearchStates.waiting_for_favorite)
     await callback.answer()
-
-
-# --- ДОБАВЛЕНИЕ В ИЗБРАННОЕ ПО НОМЕРУ ---
-
-@start_router.message(SearchStates.waiting_for_favorite)
-async def handle_favorite_by_number(message: types.Message, state: FSMContext):
-    if not message.from_user or not message.text:
-        return
-
-    if message.text in ["/start", "/subscribe", "/unsubscribe", "/cancel"]:
-        await state.clear()
-        return
-
-    try:
-        index = int(message.text.strip()) - 1
-    except ValueError:
-        return
-
-    if index < 0:
-        await message.answer("Номер должен быть положительным.")
-        return
-
-    data = await state.get_data()
-    schools = await get_filtered_schools(
-        data.get("age", "age_all"),
-        data.get("city", "city_all"),
-        data.get("duration", ""),
-        data.get("sort_type", "")
-    )
-
-    if index >= len(schools):
-        await message.answer(f"В списке всего {len(schools)} школ. Введи номер от 1 до {len(schools)}.")
-        return
-
-    school = schools[index]
-    db = await get_db()
-    try:
-        row = await db.execute("SELECT id FROM favorites WHERE user_id = ? AND school_id = ?", (message.from_user.id, school["id"]))
-        existing = await row.fetchone()
-        if existing:
-            await message.answer(f"⭐ {school['name']} уже в избранном!")
-        else:
-            await db.execute("INSERT INTO favorites (user_id, school_id) VALUES (?, ?)", (message.from_user.id, school["id"]))
-            await db.commit()
-            await message.answer(f"⭐ {school['name']} добавлена в избранное!")
-    finally:
-        await db.close()
-    await state.clear()
