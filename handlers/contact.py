@@ -132,8 +132,12 @@ async def admin_reply(message: types.Message):
 
 @contact_router.message(lambda msg: msg.chat.type == "private")
 async def handle_regular_message(message: types.Message):
-    """Пересылает любые сообщения от пользователя в его тему."""
+    """Пересылает сообщения от пользователя в его тему, кроме кнопок меню."""
     if message.from_user is None:
+        return
+
+    # Не пересылаем кнопки главного меню
+    if message.text in ["🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами"]:
         return
 
     user_id = message.from_user.id
