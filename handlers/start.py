@@ -35,6 +35,15 @@ async def delete_last_bot_message(bot, chat_id: int, message_id: int):
             pass
 
 
+async def delete_instruction(state: FSMContext, bot, chat_id: int):
+    """Удаляет подсказку 'Связаться с нами'."""
+    data = await state.get_data()
+    msg_id = data.get("contact_instruction_id")
+    if msg_id:
+        await delete_last_bot_message(bot, chat_id, msg_id)
+        await state.update_data(contact_instruction_id=None)
+
+
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
@@ -112,6 +121,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @start_router.callback_query(F.data == "search")
 async def cb_search(callback: types.CallbackQuery, state: FSMContext):
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
     await state.clear()
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -212,6 +222,7 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
     await state.clear()
     sent = await callback.message.answer(
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
@@ -219,15 +230,3 @@ async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.update_data(contact_instruction_id=sent.message_id)
     await callback.answer()
-
-
-@start_router.message(lambda msg: msg.chat.type == "private" and msg.text not in [
-    "/start", "/subscribe", "/unsubscribe", "/cancel", "🔍 Подобрать курс", "📩 Связаться с нами"
-])
-async def delete_instruction_on_message(message: types.Message, state: FSMContext):
-    """Удаляет инструкцию 'Связаться с нами' при отправке сообщения."""
-    data = await state.get_data()
-    instruction_id = data.get("contact_instruction_id")
-    if instruction_id:
-        await delete_last_bot_message(message.bot, message.chat.id, instruction_id)
-        await state.update_data(contact_instruction_id=None)

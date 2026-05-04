@@ -99,13 +99,22 @@ async def admin_reply(message: types.Message):
         await message.reply("❌ Не удалось отправить ответ.")
 
 
-@contact_router.message(lambda msg: msg.chat.type == "private" and msg.text not in [
-    "🔍 Подобрать курс", "📩 Связаться с нами",
-    "/start", "/subscribe", "/unsubscribe", "/cancel"
+@contact_router.message(lambda msg: msg.chat.type == "private" and msg.text and not msg.text.startswith("/") and msg.text not in [
+    "🔍 Подобрать курс", "📩 Связаться с нами"
 ])
-async def handle_regular_message(message: types.Message):
+async def handle_regular_message(message: types.Message, state: FSMContext):
     if message.from_user is None:
         return
+
+    # Удаляем подсказку
+    data = await state.get_data()
+    instruction_id = data.get("contact_instruction_id")
+    if instruction_id:
+        try:
+            await message.bot.delete_message(message.chat.id, instruction_id)
+        except Exception:
+            pass
+        await state.update_data(contact_instruction_id=None)
 
     user_id = message.from_user.id
     user_info = f"{message.from_user.first_name or ''} {message.from_user.last_name or ''}".strip()
