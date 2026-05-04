@@ -27,20 +27,6 @@ def map_duration(duration: str) -> str:
     return mapping.get(duration, "")
 
 
-async def delete_last_bot_message(bot, chat_id: int, state: FSMContext):
-    data = await state.get_data()
-    last_msg_id = data.get("last_bot_msg_id")
-    if last_msg_id:
-        try:
-            await bot.delete_message(chat_id, last_msg_id)
-        except Exception:
-            pass
-
-
-async def save_last_bot_message(state: FSMContext, message: types.Message):
-    await state.update_data(last_bot_msg_id=message.message_id)
-
-
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
@@ -108,14 +94,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
     name = message.from_user.first_name if message.from_user and message.from_user.first_name else "Студент"
 
-    await delete_last_bot_message(message.bot, message.chat.id, state)
-    sent = await message.answer(
+    await message.answer(
         f"Привет, {name}! 👋\n\n"
         f"Я помогу найти школу английского в Великобритании.\n"
         f"Выбери, что хочешь сделать 👇",
         reply_markup=get_main_keyboard()
     )
-    await save_last_bot_message(state, sent)
 
 
 @start_router.callback_query(F.data == "search")
@@ -201,19 +185,15 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
     await callback.message.edit_text(text, reply_markup=get_main_keyboard())
-    await state.update_data(last_bot_msg_id=callback.message.message_id)
     await callback.answer()
 
 
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
-    sent = await callback.message.answer(
+    await callback.message.edit_text(
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
         reply_markup=get_main_keyboard()
     )
-    await save_last_bot_message(state, sent)
     await callback.answer()
