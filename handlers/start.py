@@ -201,11 +201,8 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    # Удаляем предыдущий результат (список школ)
     await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
-    # Редактируем текущее сообщение — заменяем "Как отсортировать?" на список школ
     await callback.message.edit_text(text, reply_markup=get_main_keyboard())
-    # Сохраняем это сообщение как последний результат
     await state.update_data(last_bot_msg_id=callback.message.message_id)
     await callback.answer()
 
@@ -213,8 +210,10 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text(
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, state)
+    sent = await callback.message.answer(
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
         reply_markup=get_main_keyboard()
     )
+    await save_last_bot_message(state, sent)
     await callback.answer()
