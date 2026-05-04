@@ -189,7 +189,7 @@ async def process_sort_choice(message: types.Message, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    text += "⭐ Чтобы добавить в избранное — напиши номер.\n❌ Или нажми любую кнопку меню для нового действия."
+    text += "⭐ Чтобы добавить в избранное — напиши номер."
     await message.answer(text, reply_markup=get_main_keyboard())
     await state.set_state(SearchStates.waiting_for_favorite)
 
@@ -199,22 +199,9 @@ async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
     if not message.from_user or not message.text:
         return
 
-    if message.text == "🔍 Подобрать курс":
-        await button_search(message, state)
-        return
-    elif message.text == "🏫 Наши школы":
-        await button_schools(message, state)
-        return
-    elif message.text == "💰 Скидки":
-        await button_discounts(message, state)
-        return
-    elif message.text == "⭐ Избранное":
+    # Кнопки главного меню — сбрасываем состояние, они обработаются в своих роутерах
+    if message.text in ["🔍 Подобрать курс", "🏫 Наши школы", "💰 Скидки", "⭐ Избранное", "📩 Связаться с нами"]:
         await state.clear()
-        await show_favorites_direct(message)
-        return
-    elif message.text == "📩 Связаться с нами":
-        await state.clear()
-        await contact_direct(message, state)
         return
 
     try:
@@ -247,42 +234,6 @@ async def handle_favorite_or_menu(message: types.Message, state: FSMContext):
     finally:
         await db.close()
     await state.clear()
-
-
-async def show_favorites_direct(message: types.Message):
-    if not message.from_user:
-        return
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT s.name, s.city, s.price_per_week, s.rating FROM favorites f JOIN schools s ON f.school_id = s.id WHERE f.user_id = ?",
-            (message.from_user.id,),
-        )
-        favorites = await cursor.fetchall()
-    finally:
-        await db.close()
-
-    if not favorites:
-        await message.answer("⭐ У тебя пока нет избранных школ.\n\nНажми «🔍 Подобрать курс», чтобы найти школу и добавить в избранное.")
-        return
-
-    text = "⭐ Твои избранные школы:\n\n"
-    for i, fav in enumerate(favorites, 1):
-        fav = dict(fav)
-        text += f"{i}. 🏫 {fav['name']}\n   📍 {fav['city']}\n   💰 £{fav['price_per_week']}/нед\n   ⭐ {fav['rating']}/5\n\n"
-    await message.answer(text)
-
-
-async def contact_direct(message: types.Message, state: FSMContext):
-    from aiogram.fsm.state import State, StatesGroup
-
-    class ContactStates(StatesGroup):
-        waiting_for_message = State()
-
-    await message.answer(
-        "📩 Напиши свой вопрос прямо сюда — я перешлю его команде.\n\nДля отмены нажми /cancel"
-    )
-    await state.set_state(ContactStates.waiting_for_message)
 
 
 @start_router.message(lambda msg: msg.text == "🏫 Наши школы")
