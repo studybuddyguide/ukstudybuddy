@@ -16,6 +16,7 @@ class SearchStates(StatesGroup):
     waiting_for_city = State()
     waiting_for_duration = State()
     waiting_for_sort = State()
+    viewing_school = State()
 
 
 def map_duration(duration: str) -> str:
@@ -44,7 +45,6 @@ async def delete_instruction(state: FSMContext, bot, chat_id: int):
 
 
 async def delete_menu_prompt(state: FSMContext, bot, chat_id: int):
-    """Удаляет сообщение 'Выбери, что хочешь сделать', если оно есть."""
     data = await state.get_data()
     msg_id = data.get("menu_prompt_id")
     if msg_id:
@@ -312,8 +312,92 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    await callback.message.answer(text, reply_markup=get_main_keyboard())
-    await state.clear()
+    # Кнопки с названиями школ
+    buttons = []
+    for i, school in enumerate(schools, 1):
+        short_name = school["name"] if len(school["name"]) <= 25 else school["name"][:25] + "..."
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{i}. {short_name} — Подробнее",
+                callback_data=f"school_detail_{school['id']}"
+            )
+        ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await callback.message.answer(text, reply_markup=keyboard)
+    await state.update_data(schools_list=schools)
+    await state.set_state(SearchStates.viewing_school)
+    await callback.answer()
+
+
+# --- Детальный просмотр школы ---
+
+@start_router.callback_query(F.data.startswith("school_detail_"), SearchStates.viewing_school)
+async def cb_school_detail(callback: types.CallbackQuery, state: FSMContext):
+    school_id = int(callback.data.replace("school_detail_", ""))
+    data = await state.get_data()
+    schools = data.get("schools_list", [])
+
+    school = None
+    for s in schools:
+        if s["id"] == school_id:
+            school = s
+            break
+
+    if not school:
+        await callback.answer("Школа не найдена")
+        return
+
+    durations_list = json.loads(school["durations"])
+    durations_text = ", ".join(durations_list)
+
+    text = (
+        f"🏫 {school['name']}\n\n"
+        f"📍 Город: {school['city']}\n"
+        f"💰 Стоимость: £{school['price_per_week']}/неделя\n"
+        f"⭐ Рейтинг: {school['rating']}/5\n"
+        f"👥 Возраст: {school['age_group']}\n"
+        f"📆 Длительности: {durations_text}\n\n"
+        f"📝 {school['description']}\n\n"
+        f"📅 Ближайшие даты начала: уточняйте\n"
+        f"🏠 Проживание: семья / резиденция\n"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="← Назад к списку", callback_data="back_to_schools_list")],
+        ]
+    )
+
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@start_router.callback_query(F.data == "back_to_schools_list", SearchStates.viewing_school)
+async def cb_back_to_schools_list(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    schools = data.get("schools_list", [])
+
+    text = f"🔍 Нашёл {len(schools)} школ:\n\n"
+    for i, school in enumerate(schools, 1):
+        durations_list = json.loads(school["durations"])
+        durations_text = ", ".join(durations_list)
+        text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
+
+    buttons = []
+    for i, school in enumerate(schools, 1):
+        short_name = school["name"] if len(school["name"]) <= 25 else school["name"][:25] + "..."
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{i}. {short_name} — Подробнее",
+                callback_data=f"school_detail_{school['id']}"
+            )
+        ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
 
