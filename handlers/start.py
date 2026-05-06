@@ -298,11 +298,11 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
 
     if not schools:
-        await callback.message.answer(
+        sent = await callback.message.answer(
             "😕 Ничего не найдено.\n\nНажми /start чтобы попробовать снова.",
             reply_markup=get_main_keyboard()
         )
-        await state.clear()
+        await state.update_data(step_msg_id=sent.message_id)
         await callback.answer()
         return
 
