@@ -306,27 +306,30 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
+    all_ids = [school["id"] for school in schools]
+    ids_str = ",".join(str(x) for x in all_ids)
+
     text = f"🔍 Нашёл {len(schools)} школ:\n\n"
     for i, school in enumerate(schools, 1):
         durations_list = json.loads(school["durations"])
         durations_text = ", ".join(durations_list)
         text += f"{i}. 🏫 {school['name']}\n   📍 {school['city']}\n   💰 £{school['price_per_week']}/нед\n   ⭐ {school['rating']}/5\n   📆 {durations_text}\n   📝 {school['description']}\n\n"
 
-    # Кнопки с названиями школ
     buttons = []
     for i, school in enumerate(schools, 1):
         short_name = school["name"] if len(school["name"]) <= 25 else school["name"][:25] + "..."
         buttons.append([
             InlineKeyboardButton(
                 text=f"{i}. {short_name} — Подробнее",
-                callback_data=f"school_detail_{school['id']}"
+                callback_data=f"school_detail_{school['id']}_{ids_str}"
             )
         ])
+    buttons.append([
+        InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_menu")
+    ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
     await callback.message.answer(text, reply_markup=keyboard)
-    await state.update_data(schools_list=schools)
     await state.set_state(SearchStates.viewing_school)
     await callback.answer()
 
@@ -335,15 +338,17 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data.startswith("school_detail_"), SearchStates.viewing_school)
 async def cb_school_detail(callback: types.CallbackQuery, state: FSMContext):
-    school_id = int(callback.data.replace("school_detail_", ""))
-    data = await state.get_data()
-    schools = data.get("schools_list", [])
+    parts = callback.data.replace("school_detail_", "").split("_")
+    school_id = int(parts[0])
+    all_ids = [int(x) for x in parts[1].split(",")] if len(parts) > 1 else []
 
-    school = None
-    for s in schools:
-        if s["id"] == school_id:
-            school = s
-            break
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM schools WHERE id = ?", (school_id,))
+        row = await cursor.fetchone()
+        school = dict(row) if row else None
+    finally:
+        await db.close()
 
     if not school:
         await callback.answer("Школа не найдена")
@@ -364,9 +369,11 @@ async def cb_school_detail(callback: types.CallbackQuery, state: FSMContext):
         f"🏠 Проживание: семья / резиденция\n"
     )
 
+    ids_str = ",".join(str(x) for x in all_ids)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="← Назад к списку", callback_data="back_to_schools_list")],
+            [InlineKeyboardButton(text="← Назад к списку", callback_data=f"back_to_list_{ids_str}")],
+            [InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_menu")],
         ]
     )
 
@@ -374,10 +381,21 @@ async def cb_school_detail(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@start_router.callback_query(F.data == "back_to_schools_list", SearchStates.viewing_school)
+@start_router.callback_query(F.data.startswith("back_to_list_"), SearchStates.viewing_school)
 async def cb_back_to_schools_list(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    schools = data.get("schools_list", [])
+    ids_str = callback.data.replace("back_to_list_", "")
+    all_ids = [int(x) for x in ids_str.split(",")]
+
+    db = await get_db()
+    try:
+        schools = []
+        for school_id in all_ids:
+            cursor = await db.execute("SELECT * FROM schools WHERE id = ?", (school_id,))
+            row = await cursor.fetchone()
+            if row:
+                schools.append(dict(row))
+    finally:
+        await db.close()
 
     text = f"🔍 Нашёл {len(schools)} школ:\n\n"
     for i, school in enumerate(schools, 1):
@@ -391,12 +409,14 @@ async def cb_back_to_schools_list(callback: types.CallbackQuery, state: FSMConte
         buttons.append([
             InlineKeyboardButton(
                 text=f"{i}. {short_name} — Подробнее",
-                callback_data=f"school_detail_{school['id']}"
+                callback_data=f"school_detail_{school['id']}_{ids_str}"
             )
         ])
+    buttons.append([
+        InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_menu")
+    ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
     await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
 
