@@ -43,6 +43,15 @@ async def delete_instruction(state: FSMContext, bot, chat_id: int):
         await state.update_data(contact_instruction_id=None)
 
 
+async def delete_menu_prompt(state: FSMContext, bot, chat_id: int):
+    """Удаляет сообщение 'Выбери, что хочешь сделать', если оно есть."""
+    data = await state.get_data()
+    msg_id = data.get("menu_prompt_id")
+    if msg_id:
+        await delete_last_bot_message(bot, chat_id, msg_id)
+        await state.update_data(menu_prompt_id=None)
+
+
 async def get_filtered_schools(age: str, city: str, duration: str, sort_type: str) -> list:
     db = await get_db()
     try:
@@ -84,25 +93,24 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         await db.close()
 
 
-# --- Обработчики кнопок "Назад" ---
+# --- Кнопки "Назад" ---
 
 @start_router.callback_query(F.data == "back_to_menu")
 async def cb_back_to_menu(callback: types.CallbackQuery, state: FSMContext):
-    """Возврат в главное меню."""
     await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.clear()
-    await callback.message.answer(
+    sent = await callback.message.answer(
         "Выбери, что хочешь сделать 👇",
         reply_markup=get_main_keyboard()
     )
+    await state.update_data(menu_prompt_id=sent.message_id)
     await callback.answer()
 
 
 @start_router.callback_query(F.data == "back_to_age")
 async def cb_back_to_age(callback: types.CallbackQuery, state: FSMContext):
-    """Возврат к выбору возраста."""
     await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
@@ -122,7 +130,6 @@ async def cb_back_to_age(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data == "back_to_city")
 async def cb_back_to_city(callback: types.CallbackQuery, state: FSMContext):
-    """Возврат к выбору города."""
     await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
@@ -141,7 +148,6 @@ async def cb_back_to_city(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data == "back_to_duration")
 async def cb_back_to_duration(callback: types.CallbackQuery, state: FSMContext):
-    """Возврат к выбору длительности."""
     await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
@@ -201,6 +207,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @start_router.callback_query(F.data == "search")
 async def cb_search(callback: types.CallbackQuery, state: FSMContext):
     await delete_instruction(state, callback.bot, callback.message.chat.id)
+    await delete_menu_prompt(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.clear()
@@ -313,6 +320,7 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     await delete_instruction(state, callback.bot, callback.message.chat.id)
+    await delete_menu_prompt(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.clear()
