@@ -36,7 +36,6 @@ async def delete_last_bot_message(bot, chat_id: int, message_id: int):
 
 
 async def delete_instruction(state: FSMContext, bot, chat_id: int):
-    """Удаляет подсказку 'Связаться с нами', если она есть."""
     data = await state.get_data()
     msg_id = data.get("contact_instruction_id")
     if msg_id:
@@ -85,6 +84,83 @@ async def get_filtered_schools(age: str, city: str, duration: str, sort_type: st
         await db.close()
 
 
+# --- Обработчики кнопок "Назад" ---
+
+@start_router.callback_query(F.data == "back_to_menu")
+async def cb_back_to_menu(callback: types.CallbackQuery, state: FSMContext):
+    """Возврат в главное меню."""
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
+    await state.clear()
+    await callback.message.answer(
+        "Выбери, что хочешь сделать 👇",
+        reply_markup=get_main_keyboard()
+    )
+    await callback.answer()
+
+
+@start_router.callback_query(F.data == "back_to_age")
+async def cb_back_to_age(callback: types.CallbackQuery, state: FSMContext):
+    """Возврат к выбору возраста."""
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
+    await state.set_state(SearchStates.waiting_for_city)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👨 Взрослым", callback_data="age_adults")],
+            [InlineKeyboardButton(text="🧒 Детям", callback_data="age_kids")],
+            [InlineKeyboardButton(text="🌍 Неважно", callback_data="age_all")],
+            [InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_menu")],
+        ]
+    )
+    sent = await callback.message.answer("🔍 Для кого ищешь школу английского? 👇", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
+    await callback.answer()
+
+
+@start_router.callback_query(F.data == "back_to_city")
+async def cb_back_to_city(callback: types.CallbackQuery, state: FSMContext):
+    """Возврат к выбору города."""
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
+    await state.set_state(SearchStates.waiting_for_duration)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
+            [InlineKeyboardButton(text="🤷 Не важно", callback_data="city_all")],
+            [InlineKeyboardButton(text="← Назад", callback_data="back_to_age")],
+        ]
+    )
+    sent = await callback.message.answer("🏙 Выбери город.", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
+    await callback.answer()
+
+
+@start_router.callback_query(F.data == "back_to_duration")
+async def cb_back_to_duration(callback: types.CallbackQuery, state: FSMContext):
+    """Возврат к выбору длительности."""
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
+    await state.set_state(SearchStates.waiting_for_sort)
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🟢 Краткосрочный (1-4 нед)", callback_data="dur_short")],
+            [InlineKeyboardButton(text="🟡 Среднесрочный (1-6 мес)", callback_data="dur_medium")],
+            [InlineKeyboardButton(text="🔴 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
+            [InlineKeyboardButton(text="← Назад", callback_data="back_to_city")],
+        ]
+    )
+    sent = await callback.message.answer("⏳ Длительность?", reply_markup=keyboard)
+    await state.update_data(step_msg_id=sent.message_id)
+    await callback.answer()
+
+
+# --- Основные обработчики ---
+
 @start_router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -128,11 +204,13 @@ async def cb_search(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.clear()
+    await state.set_state(SearchStates.waiting_for_city)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="👨 Взрослым", callback_data="age_adults")],
             [InlineKeyboardButton(text="🧒 Детям", callback_data="age_kids")],
             [InlineKeyboardButton(text="🌍 Неважно", callback_data="age_all")],
+            [InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_menu")],
         ]
     )
     sent = await callback.message.answer("🔍 Для кого ищешь школу английского? 👇", reply_markup=keyboard)
@@ -146,11 +224,12 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(age=callback.data)
-    await state.set_state(SearchStates.waiting_for_city)
+    await state.set_state(SearchStates.waiting_for_duration)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
             [InlineKeyboardButton(text="🤷 Не важно", callback_data="city_all")],
+            [InlineKeyboardButton(text="← Назад", callback_data="back_to_age")],
         ]
     )
     sent = await callback.message.answer("🏙 Выбери город.", reply_markup=keyboard)
@@ -164,12 +243,13 @@ async def cb_city(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(city=callback.data)
-    await state.set_state(SearchStates.waiting_for_duration)
+    await state.set_state(SearchStates.waiting_for_sort)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🟢 Краткосрочный (1-4 нед)", callback_data="dur_short")],
             [InlineKeyboardButton(text="🟡 Среднесрочный (1-6 мес)", callback_data="dur_medium")],
             [InlineKeyboardButton(text="🔴 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
+            [InlineKeyboardButton(text="← Назад", callback_data="back_to_city")],
         ]
     )
     sent = await callback.message.answer("⏳ Длительность?", reply_markup=keyboard)
@@ -189,6 +269,7 @@ async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="💰 Дешевле", callback_data="sort_cheap")],
             [InlineKeyboardButton(text="💎 Дороже", callback_data="sort_expensive")],
             [InlineKeyboardButton(text="⭐ По рейтингу", callback_data="sort_rating")],
+            [InlineKeyboardButton(text="← Назад", callback_data="back_to_duration")],
         ]
     )
     sent = await callback.message.answer("📊 Как отсортировать?", reply_markup=keyboard)
