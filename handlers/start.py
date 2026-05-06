@@ -232,6 +232,8 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 @start_router.callback_query(F.data == "contact")
 async def cb_contact(callback: types.CallbackQuery, state: FSMContext):
     await delete_instruction(state, callback.bot, callback.message.chat.id)
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.clear()
     sent = await callback.message.answer(
         "📩 Напиши свой вопрос прямо в чат — я перешлю его команде.\n\nДля отмены нажми /cancel",
