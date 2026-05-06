@@ -36,6 +36,7 @@ async def delete_last_bot_message(bot, chat_id: int, message_id: int):
 
 
 async def delete_instruction(state: FSMContext, bot, chat_id: int):
+    """Удаляет подсказку 'Связаться с нами', если она есть."""
     data = await state.get_data()
     msg_id = data.get("contact_instruction_id")
     if msg_id:
@@ -139,6 +140,7 @@ async def cb_search(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data.in_(["age_adults", "age_kids", "age_all"]))
 async def cb_age(callback: types.CallbackQuery, state: FSMContext):
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(age=callback.data)
@@ -156,6 +158,7 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data.in_(["city_london", "city_all"]))
 async def cb_city(callback: types.CallbackQuery, state: FSMContext):
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(city=callback.data)
@@ -174,6 +177,7 @@ async def cb_city(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data.in_(["dur_short", "dur_medium", "dur_long"]))
 async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.update_data(duration=callback.data.replace("dur_", ""))
@@ -192,6 +196,7 @@ async def cb_duration(callback: types.CallbackQuery, state: FSMContext):
 
 @start_router.callback_query(F.data.in_(["sort_cheap", "sort_expensive", "sort_rating"]))
 async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
+    await delete_instruction(state, callback.bot, callback.message.chat.id)
     data = await state.get_data()
     age = data.get("age", "age_all")
     city = data.get("city", "city_all")
