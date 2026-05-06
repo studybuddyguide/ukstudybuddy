@@ -125,6 +125,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
 @start_router.callback_query(F.data == "search")
 async def cb_search(callback: types.CallbackQuery, state: FSMContext):
     await delete_instruction(state, callback.bot, callback.message.chat.id)
+    data = await state.get_data()
+    await delete_last_bot_message(callback.bot, callback.message.chat.id, data.get("step_msg_id"))
     await state.clear()
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
