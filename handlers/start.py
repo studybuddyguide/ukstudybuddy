@@ -137,7 +137,7 @@ async def cb_back_to_city(callback: types.CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
-            [InlineKeyboardButton(text="🤷 Не важно", callback_data="city_all")],
+            [InlineKeyboardButton(text="🤷 Другие города", callback_data="city_all")],
             [InlineKeyboardButton(text="← Назад", callback_data="back_to_age")],
         ]
     )
@@ -154,9 +154,9 @@ async def cb_back_to_duration(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(SearchStates.waiting_for_sort)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🟢 Краткосрочный (1-4 нед)", callback_data="dur_short")],
-            [InlineKeyboardButton(text="🟡 Среднесрочный (1-6 мес)", callback_data="dur_medium")],
-            [InlineKeyboardButton(text="🔴 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
+            [InlineKeyboardButton(text="🌱 Краткосрочный (1-4 нед)", callback_data="dur_short")],
+            [InlineKeyboardButton(text="📚 Среднесрочный (1-6 мес)", callback_data="dur_medium")],
+            [InlineKeyboardButton(text="🎓 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
             [InlineKeyboardButton(text="← Назад", callback_data="back_to_city")],
         ]
     )
@@ -235,7 +235,7 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
-            [InlineKeyboardButton(text="🤷 Не важно", callback_data="city_all")],
+            [InlineKeyboardButton(text="🤷 Другие города", callback_data="city_all")],
             [InlineKeyboardButton(text="← Назад", callback_data="back_to_age")],
         ]
     )
@@ -253,9 +253,9 @@ async def cb_city(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(SearchStates.waiting_for_sort)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🟢 Краткосрочный (1-4 нед)", callback_data="dur_short")],
-            [InlineKeyboardButton(text="🟡 Среднесрочный (1-6 мес)", callback_data="dur_medium")],
-            [InlineKeyboardButton(text="🔴 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
+            [InlineKeyboardButton(text="🌱 Краткосрочный (1-4 нед)", callback_data="dur_short")],
+            [InlineKeyboardButton(text="📚 Среднесрочный (1-6 мес)", callback_data="dur_medium")],
+            [InlineKeyboardButton(text="🎓 Долгосрочный (6-12+ мес)", callback_data="dur_long")],
             [InlineKeyboardButton(text="← Назад", callback_data="back_to_city")],
         ]
     )
@@ -299,7 +299,7 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
 
     if not schools:
         sent = await callback.message.answer(
-            "😕 Ничего не найдено.\n\nНажми /start чтобы попробовать снова.",
+            "😕 Ничего не найдено.",
             reply_markup=get_main_keyboard()
         )
         await state.update_data(step_msg_id=sent.message_id)
@@ -334,9 +334,9 @@ async def cb_sort(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# --- Детальный просмотр школы ---
+# --- Детальный просмотр школы (без привязки к состоянию) ---
 
-@start_router.callback_query(F.data.startswith("school_detail_"), SearchStates.viewing_school)
+@start_router.callback_query(F.data.startswith("school_detail_"))
 async def cb_school_detail(callback: types.CallbackQuery, state: FSMContext):
     parts = callback.data.replace("school_detail_", "").split("_")
     school_id = int(parts[0])
@@ -381,7 +381,7 @@ async def cb_school_detail(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@start_router.callback_query(F.data.startswith("back_to_list_"), SearchStates.viewing_school)
+@start_router.callback_query(F.data.startswith("back_to_list_"))
 async def cb_back_to_schools_list(callback: types.CallbackQuery, state: FSMContext):
     ids_str = callback.data.replace("back_to_list_", "")
     all_ids = [int(x) for x in ids_str.split(",")]
