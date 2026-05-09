@@ -137,11 +137,11 @@ async def cb_back_to_city(callback: types.CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
-            [InlineKeyboardButton(text="🤷 Другие города", callback_data="city_all")],
+            [InlineKeyboardButton(text="🔍 Другие города", callback_data="city_all")],
             [InlineKeyboardButton(text="← Назад", callback_data="back_to_age")],
         ]
     )
-    sent = await callback.message.answer("🏙 Выбери город.", reply_markup=keyboard)
+    sent = await callback.message.answer("В каком городе ты хочешь учиться?", reply_markup=keyboard)
     await state.update_data(step_msg_id=sent.message_id)
     await callback.answer()
 
@@ -235,11 +235,11 @@ async def cb_age(callback: types.CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🏛 Лондон", callback_data="city_london")],
-            [InlineKeyboardButton(text="🤷 Другие города", callback_data="city_all")],
+            [InlineKeyboardButton(text="🔍 Другие города", callback_data="city_all")],
             [InlineKeyboardButton(text="← Назад", callback_data="back_to_age")],
         ]
     )
-    sent = await callback.message.answer("🏙 Выбери город.", reply_markup=keyboard)
+    sent = await callback.message.answer("В каком городе ты хочешь учиться?", reply_markup=keyboard)
     await state.update_data(step_msg_id=sent.message_id)
     await callback.answer()
 
